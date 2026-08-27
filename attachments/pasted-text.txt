@@ -1,0 +1,1747 @@
+go thru thsi # Handoff — Provider "Orders" Section Redesign (Minimal Care Portal)
+
+
+
+Prepared 2026-08-21 for the UX/design agent. Everything in this folder is self-contained;
+
+sources are cited so any claim can be re-verified.
+
+
+
+## What this is
+
+
+
+An evidence-backed, fully interactive prototype of a **new doctor-facing Orders section**
+
+for the Minimal EHR care portal, replacing the current 7-tab task drawer for
+
+`OrderEvaluation` tasks with a LifeRx/TelyRx-style model: one Orders list, **one page per
+
+order**, everything needed to decide visible upfront, approval in one click.
+
+
+
+- **Live artifact (interactive, share from its menu):** https://claude.ai/code/artifact/09a121da-9f00-4837-8e5d-d4b2c949ce56
+
+- **Local prototype file:** `orders-redesign.html` (this folder). Single self-contained HTML —
+
+open in a browser. All state in JS; localStorage persistence; "Reset demo data" in the
+
+Demo controls (bottom-left).
+
+- **Built-in guided tour:** "▶ Start walkthrough" (guide bar or Demo controls) — 15 spotlight
+
+steps, each with "What we did / Why". The step definitions live in the `TOUR` array inside
+
+the HTML — they are the canonical rationale, keep them in sync with any design change.
+
+- **Evidence screenshots:** `evidence/` (see inventory at the bottom).
+
+
+
+## The problem (and the real insight)
+
+
+
+Dr. Miller (external prescriber, US) reviews RX storefront orders. Management asked for
+
+"minimal clicks for approvals, details upfront."
+
+
+
+**The approve button was never the problem.** In the current dev portal, "Approve order
+
+line" is already ONE click with no confirmation (verified live on dev-care, task TASK6301,
+
+2026-08-21). The real costs are:
+
+
+
+1. **Context assembly** — 7 drawer tabs (Overview / Order Evaluation / Visit Note /
+
+Past Tasks / History / Files / Messages); shipping address shown nowhere; patient's
+
+other orders shown nowhere; legacy noise ("Primary Disability Information", Driver's
+
+License / Parking Permit fields).
+
+2. **No per-order URL** — the drawer lives inside the queue page, so the doctor's actual
+
+habit (Ctrl-click ~10 cases into 10 browser tabs, approve, close, next) is impossible;
+
+"back नहीं आता".
+
+3. **Medication swap dropdown exposes the entire catalog** (~50 items incl. $0.00 peptides)
+
+as one flat list.
+
+4. **Auto-refill is unlimited today** — the order-refill cron clones the prescription with
+
+`taskId: null`, no task, no review, forever until cancelled. There is NO refill-count
+
+column anywhere in the schema. (This turns the meeting's "approve with 3 refills" into a
+
+new *safety control*, not a convenience.)
+
+
+
+## Decisions shipped in the prototype (with rationale)
+
+
+
+| #   | Decision                                                                                                                                                                                | Why / source                                                                                                                                          |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | New sidebar entry **Orders** (count badge); Tasks queue untouched                                                                                                                       | Meeting 21 Aug: orders-only scope; evaluations/follow-ups stay in Tasks                                                                               |
+| 2   | Orders **list** with triage stats, needs-review default filter, big rows                                                                                                                | Doctor's first question is "how many waiting"                                                                                                         |
+| 3   | Rows are **real links** (`#order/ORD-xxxx` hash routes)                                                                                                                                 | Ctrl-click → 10 standalone tabs = Miller's actual workflow                                                                                            |
+| 4   | Inline one-click **Approve only on refill re-authorization rows**                                                                                                                       | Refill re-auth ≈ Epic "Sign All" clean-renewal case; new orders must open the page (Epic QuickAction macros once silently inverted deny→approve)      |
+| 5   | One page per order, tabs **Order · Patient · Past Orders · Documents · Prev Prescriptions** (Order first)                                                                               | Meeting's exact tab list; Visit Note auto-generates on approval; Messages dropped ("he doesn't look at it")                                           |
+| 6   | Header: identity, DOB/age, **licence-match badge**, new-vs-returning, paid amount, order age                                                                                            | Prescribing happens where the patient is located — licence match is compliance-critical (HHS/FSMB)                                                    |
+| 7   | Decision surface: med + dose + qty + paid + editable **SIG** inline; **price difference only appears when a swap changes it**                                                           | The permanent "No adjustment needed" block answered a question nobody asked (meeting)                                                                 |
+| 8   | **Refill cap segmented control** None/1/2/3/5, default 3; copy: "auto-ships each cycle — no task for you, stops after N"                                                                | TelyRx per-line Refill dropdown + LifeFile "Additional Refills" convention; NCPDP NumberOfRefills; fixes today's unlimited auto-ship                  |
+| 9   | **Titrating GLP-1s get "re-evaluate each cycle"** instead of a refill count                                                                                                             | Monthly dose escalation makes each refill a new Rx; 503A pharmacies capped at 4 scripts/patient/month                                                 |
+| 10  | **Swap demoted** to a "Swap medication (N alternatives)" link, closed by default, alternatives limited to same category                                                                 | Swaps are rare; full-catalog dropdown is noisy and error-prone; capability preserved                                                                  |
+| 11  | Patient snapshot card with **shipping address pinned**                                                                                                                                  | Named bug in the sync. The data already reaches the drawer client payload (`orders.shippingAddress` jsonb) — it's just never rendered                 |
+| 12  | Intake highlights inline (4 Q/A), full intake on Patient tab, PDF one click away                                                                                                        | Decision inputs upfront; files are reference                                                                                                          |
+| 13  | Safety card: interaction screen result + **new-patient hard flag**                                                                                                                      | FSMB: static-questionnaire-only prescribing not acceptable → first Rx keeps full review, quick-approve + A key disarmed                               |
+| 14  | Sticky action bar: **Approve & Sign bottom-right, big** (US primary-right convention); Request info beside it; **Decline & refund isolated far-left** with reason select + confirm step | NN/g primary-right; destructive separated & never Enter-default; decline refunds money so it keeps friction                                           |
+| 15  | **Undo instead of confirm**: approval signs immediately, transmission held 5 s with Undo toast, then **auto-advance** to next pending                                                   | Confirm dialogs habituate within a day at this volume (NN/g, Raskin); auto-advance = MDI/Gmail triage rhythm; benchmark 89 s–3.6 min per async review |
+| 16  | Keyboard: A approve · D decline (opens reason) · ‹ › navigate — **disarmed for new patients**                                                                                           | Moderation-queue rhythm; keys off on flagged items                                                                                                    |
+| 17  | Partial approval: per-line "Decline this line" on multi-line orders                                                                                                                     | Backend approves per line anyway (see seams); TelyRx "Decline Drug" checkbox                                                                          |
+| 18  | **Single light theme** (dark CSS removed)                                                                                                                                               | Client instruction 21 Aug ("keep white themed")                                                                                                       |
+
+
+
+## Implementation seams (from the code trace of `minimal-care-portal`, branch dev)
+
+
+
+The backend already supports most of this — the page is mostly assembling data the server
+
+returns. Key facts for feasibility conversations:
+
+
+
+- **Approval is per LINE, not per order.** Each `order_items` row has a 1:1 `taskId`
+
+(schema.ts:2813). An "Approve whole order" button loops the per-line server action.
+
+- Server actions `approveOrderEvaluation` / `declineOrderEvaluation` are taskId-keyed
+
+(`src/lib/orders/order-evaluation-actions.ts:308, :477`) and reusable from a new page.
+
+Note: `revalidatePath` hardcodes `/new-tasks` (:461, :573) and there is **no server-side
+
+provider-authorization check** — flag to engineering.
+
+- Shipping address: `orders.shippingAddress` jsonb snapshot (schema.ts:2778), already
+
+returned by `getOrderLineForTask` (:643-655); only admin renders it (OrderOpsDetail.tsx:289-295).
+
+- Order header status is derived from lines: `placed | in_review | approved |
+
+partially_approved | declined` (schema.ts:2773; recomputeOrderStatus :65-90).
+
+- Refill plumbing: `patient_subscriptions` (schema.ts:2834-2853) is an open-ended cadence
+
+loop (`nextRefillAt`); refill cron `src/lib/orders/refill-processor.ts` clones the Rx with
+
+`taskId:null` (:133-150) — zero review. **"Approve with N refills" needs:** a
+
+`refillsRemaining` column, a count input in the approve action payload, the seam at
+
+`maybeCreateSubscription` (order-evaluation-actions.ts:214-294), and a decrement +
+
+cancel-at-zero in `processOneSubscription` (:172-183).
+
+- Price difference = `(defaultPrice − pricePaid) × qty`, auto charge/refund of the delta on
+
+the saved card (`chargeOrRefundDelta`, order-evaluation-actions.ts:92-200).
+
+- Provider routes live under `src/app/(main)/provider/[providerId]/*`; sidebar nav array in
+
+`src/app/(main)/_components/provider/SideBar.tsx:38-86`. **No provider orders page exists**
+
+— the "new order section" in the repo is admin-only Order Ops (`admin/orders`, read-only
+
+clinical).
+
+- TelyRx is already the team's internal benchmark: the medication catalog CSV carries
+
+"VITAstir / TelyRx / LIMITLESS" competitor price columns
+
+(`docs/import-minimal-medication-catalog.md:17`). No e-prescribing vendor integration
+
+exists — fulfilment is in-house, so refill-cap logic lives entirely in our cron.
+
+
+
+## Design tokens (mirror of the real portal — do not invent)
+
+
+
+Source: `tailwind.config.ts`, `src/styles/globals.css`, `src/lib/fonts.ts` (stock
+
+shadcn/zinc + Inter).
+
+
+
+| Token                                         | Value                                                                     |
+| --------------------------------------------- | ------------------------------------------------------------------------- |
+| Font                                          | Inter (Google Fonts), tabular-nums for money/IDs                          |
+| Page bg                                       | `hsl(0 0% 98%)` ≈ #FAFAFA                                                 |
+| Card                                          | #FFFFFF · border `hsl(240 5.9% 90%)` ≈ #E4E4E7 · radius 0.5rem            |
+| Text                                          | `hsl(240 10% 3.9%)` ≈ #09090B · muted `hsl(240 3.8% 46.1%)` ≈ #71717A     |
+| Primary button                                | near-black #18181B (slate-900), white text                                |
+| Accent                                        | blue-600 #2563EB — links, active tab, blue CTAs, count badges             |
+| Destructive                                   | #EF4444, soft bg #FEF2F2 / border #FECACA                                 |
+| Success                                       | #16A34A, soft #F0FDF4 · Warn amber #D97706, soft #FFFBEB                  |
+| Sidebar                                       | light bg, active item = black rounded pill w/ white text, 232px           |
+| Tab bar                                       | `hsl(240 4.8% 96.5%)` container, white active tab, blue text, soft shadow |
+| Annotations (meta layer only, not product UI) | violet #7C3AED                                                            |
+
+
+
+## Demo data (all realistic, drawn from dev DB reality)
+
+
+
+ORD-1042 Ahmed Larsen (returning, Sildenafil 55mg $82.08, pending) · ORD-1046 Karyn Love
+
+(NEW patient, Enclomiphene $124, pending) · ORD-1044 Bree Carney (refill 2 of 3, Oral
+
+Semaglutide $199, titrating) · ORD-1038 Mark Test (approved state) · ORD-1035 AK Tester
+
+(declined — nitrate contraindication). Demo controls can add a 2-line order (Tirzepatide +
+
+B12) to show partial approval.
+
+
+
+## Open decisions for you to weigh in on
+
+
+
+1. Refill options set (None/1/2/3/5) and default 3 — Miller asked for 3; Dishant floated
+
+auto-approve-all. Product owner question, pending Mike/Miller.
+
+2. Whether swap should exist at all for providers, vs admin-only.
+
+3. Approve-hold duration (5 s) and whether Undo should also exist post-transmission
+
+(a "reclaim" — the current portal has Unmark Review).
+
+4. Batch behaviours: we deliberately did NOT add multi-select batch approve (no market
+
+precedent, liability); auto-advance covers the speed need. Challenge if you disagree.
+
+5. Empty/edge states beyond what's built (licence mismatch hard-stop screen is described
+
+but only the badge is rendered).
+
+6. Known cosmetic caveat: the walkthrough's dim veil uses a canvas overlay (driver.js-style)
+
++ repaint heartbeat; on one test machine's *headless screenshots* the translucent layer
+
+didn't composite (ring + card still fine). Verify in a real browser; tune in
+
+`drawDim()` / `.tour-spot` if needed.
+
+
+
+## Evidence inventory (`evidence/`)
+
+
+
+Current portal (what we're replacing):
+
+- `w-3-task-open.png` — task drawer, Order Evaluation tab (default), price-difference block, footer buttons
+
+- `w4-tab-Overview.png` — Overview tab (AI analysis, legacy "disability" context, doc rails)
+
+- `w4-tab-VisitNote.png` / `w4-tab-PastTasks.png` / `w4-tab-Files.png` / `w4-tab-History.png` — remaining tabs (note legacy Driver's License / Parking Permit fields in Past Tasks)
+
+- `w5-2-med-dropdown.png` — full-catalog swap dropdown problem
+
+- `w6-1-patients.png` — provider patient list (no patient detail page exists; only a Tasks shortcut)
+
+
+
+Prototype (proposed):
+
+- `p1-list.png` — Orders list · `p1-order.png` — order page, Order tab
+
+- `p1-decline-panel.png` — decline reason step + right-aligned action bar
+
+- `p1-partial.png` — per-line decline / partial approval · `p1-empty.png` — cleared-queue state
+
+- `pt-step4.png` / `pt-step9.png` — guided walkthrough (row anatomy; refill cap)
+
+
+
+Verification: 40-assertion functional suite + 48-assertion tour suite, all green, zero
+
+console errors (flows, arithmetic, undo restore, partial approval, keyboard disarm, no
+
+horizontal scroll at 1500px/800px).
+
+
+
+
+
+
+
+and this proto  code
+
+<title>Minimal Provider Orders</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  /* ============ TOKENS — mirrored from minimal-care-portal src/styles/globals.css ============ */
+  :root{
+    --bg: hsl(0 0% 98%);
+    --card: hsl(0 0% 100%);
+    --fg: hsl(240 10% 3.9%);
+    --muted: hsl(240 4.8% 95.9%);
+    --muted-fg: hsl(240 3.8% 46.1%);
+    --border: hsl(240 5.9% 90%);
+    --primary: hsl(240 5.9% 10%);
+    --primary-fg: hsl(0 0% 98%);
+    --accent: #2563eb;            /* blue-600 — links, active tab, CTAs (matches portal) */
+    --accent-soft: #eff6ff;
+    --accent-border:#bfdbfe;
+    --destructive: #ef4444;
+    --destructive-soft: #fef2f2;
+    --destructive-border: #fecaca;
+    --success: #16a34a;
+    --success-soft: #f0fdf4;
+    --success-border: #bbf7d0;
+    --warn: #d97706;
+    --warn-soft: #fffbeb;
+    --warn-border: #fde68a;
+    --violet: #7c3aed;            /* annotation layer only */
+    --violet-soft: #f5f3ff;
+    --radius: .5rem;
+    --shadow: 0 1px 2px rgb(0 0 0 / .05);
+    --shadow-lg: 0 10px 30px rgb(0 0 0 / .12);
+    --sidebar-bg: hsl(0 0% 98%);
+    --tabbar-bg: hsl(240 4.8% 96.5%);
+  }
+  /* Deliberately single-theme: the care portal is light, and the client asked to keep it white. */
+  :root{ color-scheme: light only; }
+
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  button{ font-family: inherit; }
+  a{ color: var(--accent); text-decoration: none; }
+  a:hover{ text-decoration: underline; }
+  :focus-visible{ outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  @media (prefers-reduced-motion: reduce){
+    *, *::before, *::after{ animation: none !important; transition: none !important; }
+  }
+
+  /* ============ APP SHELL ============ */
+  .shell{ display:flex; min-height:100vh; }
+  .sidebar{
+    width: 232px; flex: 0 0 232px;
+    background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    padding: 16px 12px;
+    display:flex; flex-direction:column; gap:2px;
+    position: sticky; top:0; height:100vh;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; padding: 4px 10px 16px; }
+  .brand-mark{
+    width:34px; height:34px; border:2px solid var(--fg); border-radius:6px;
+    display:flex; align-items:center; justify-content:center; gap:2.5px; background: var(--card);
+  }
+  .brand-mark i{ display:block; width:3px; height:16px; background: var(--fg); border-radius:1px; }
+  .brand-mark i:nth-child(2){ height:12px; } .brand-mark i:nth-child(3){ height:14px; }
+  .brand b{ font-size:17px; font-weight:800; letter-spacing:-.02em; }
+  .nav-item{
+    display:flex; align-items:center; gap:10px;
+    padding: 9px 12px; border-radius: 8px;
+    color: hsl(240 5.3% 26.1%); font-weight: 500; font-size: 13.5px;
+    border:none; background:transparent; width:100%; text-align:left; cursor:pointer;
+  }
+  .nav-item:hover{ background: var(--muted); }
+  .nav-item.active{ background: var(--primary); color: var(--primary-fg); font-weight:600; }
+  .nav-item .ic{ width:17px; height:17px; flex:0 0 17px; opacity:.85; }
+  .nav-item .count{
+    margin-left:auto; font-size:11px; font-weight:700;
+    background: var(--accent); color:#fff; border-radius: 999px; padding: 1px 7px;
+  }
+  .nav-item.active .count{ background: var(--accent); }
+  .nav-new{
+    margin-left:auto; font-size:9.5px; font-weight:800; letter-spacing:.06em;
+    color: var(--violet); border:1px solid currentColor; border-radius:4px; padding:1px 5px;
+  }
+  .sidebar .foot{ margin-top:auto; padding: 10px 12px 56px; font-size:11.5px; color: var(--muted-fg); }
+
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+  .topbar{
+    height: 54px; display:flex; align-items:center; gap:14px;
+    padding: 0 24px; border-bottom: 1px solid var(--border); background: var(--card);
+    position: sticky; top:0; z-index: 30;
+  }
+  .topbar .crumb{ font-size:13px; color: var(--muted-fg); }
+  .topbar .crumb b{ color: var(--fg); font-weight:600; }
+  .avatar{
+    width:30px; height:30px; border-radius:999px; background: var(--muted);
+    display:flex; align-items:center; justify-content:center;
+    font-size:11.5px; font-weight:700; color: var(--fg); flex:0 0 30px;
+  }
+  .avatar.dr{ margin-left:auto; background: var(--primary); color: var(--primary-fg); }
+  .content{ padding: 24px; max-width: 1240px; width:100%; margin: 0 auto; }
+
+  /* ============ GUIDE BAR ============ */
+  .guide{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    background: var(--accent-soft); border:1px solid var(--accent-border);
+    border-radius: var(--radius); padding: 10px 14px; margin-bottom: 18px; font-size: 13px;
+  }
+  .guide b{ font-weight:600; }
+  .guide .x{ margin-left:auto; border:none; background:none; cursor:pointer; color: var(--muted-fg); font-size:15px; padding:2px 6px; }
+
+  /* ============ GENERIC UI ============ */
+  .card{ background: var(--card); border:1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+  .pill{
+    display:inline-flex; align-items:center; gap:5px;
+    border-radius:999px; padding: 2px 10px; font-size: 11.5px; font-weight:600;
+    border:1px solid transparent; white-space:nowrap;
+  }
+  .pill.gray{ background: var(--muted); color: var(--fg); }
+  .pill.blue{ background: var(--accent-soft); color: var(--accent); border-color: var(--accent-border); }
+  .pill.green{ background: var(--success-soft); color: var(--success); border-color: var(--success-border); }
+  .pill.red{ background: var(--destructive-soft); color: var(--destructive); border-color: var(--destructive-border); }
+  .pill.amber{ background: var(--warn-soft); color: var(--warn); border-color: var(--warn-border); }
+  .pill .dot{ width:6px; height:6px; border-radius:999px; background: currentColor; }
+
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border-radius: 8px; border:1px solid transparent; cursor:pointer;
+    font-weight:600; font-size:13.5px; padding: 9px 16px;
+    transition: background .15s, transform .05s;
+    white-space: nowrap;
+  }
+  .btn:active{ transform: translateY(1px); }
+  .btn.primary{ background: var(--primary); color: var(--primary-fg); }
+  .btn.primary:hover{ opacity:.9; }
+  .btn.blue{ background: var(--accent); color:#fff; }
+  .btn.blue:hover{ filter: brightness(1.08); }
+  .btn.outline{ background: var(--card); border-color: var(--border); color: var(--fg); }
+  .btn.outline:hover{ background: var(--muted); }
+  .btn.outline-blue{ background: var(--card); border-color: var(--accent-border); color: var(--accent); }
+  .btn.outline-blue:hover{ background: var(--accent-soft); }
+  .btn.soft-red{ background: var(--destructive-soft); border-color: var(--destructive-border); color: var(--destructive); }
+  .btn.soft-red:hover{ filter: brightness(.97); }
+  .btn.xl{ font-size:15px; padding: 13px 26px; border-radius:10px; }
+  .btn.sm{ font-size:12.5px; padding: 6px 12px; }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .kbd{
+    font-size:10px; font-weight:700; opacity:.65;
+    border:1px solid currentColor; border-radius:4px; padding:0 4px; line-height:1.5;
+  }
+
+  .num{ font-variant-numeric: tabular-nums; }
+
+  /* ============ ORDERS LIST ============ */
+  .page-head{ display:flex; align-items:flex-end; gap:16px; flex-wrap:wrap; margin-bottom:16px; }
+  .page-head h1{ font-size:22px; font-weight:800; letter-spacing:-.01em; margin:0; }
+  .page-head .sub{ color: var(--muted-fg); font-size:13px; margin-top:3px; }
+  .stats{ display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; }
+  .stat{
+    background: var(--card); border:1px solid var(--border); border-radius: var(--radius);
+    padding: 8px 14px; text-align:center; min-width:92px;
+  }
+  .stat b{ display:block; font-size:19px; font-weight:800; }
+  .stat span{ font-size:10.5px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; color: var(--muted-fg); }
+  .stat.hot b{ color: var(--accent); }
+
+  .filters{ display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+  .chip{
+    border:1px solid var(--border); background: var(--card); color: var(--muted-fg);
+    border-radius:999px; padding: 6px 14px; font-size:12.5px; font-weight:600; cursor:pointer;
+  }
+  .chip:hover{ background: var(--muted); }
+  .chip.on{ background: var(--primary); color: var(--primary-fg); border-color: var(--primary); }
+  .chip .n{ opacity:.7; margin-left:4px; }
+
+  .order-row{
+    display:grid;
+    grid-template-columns: minmax(190px, 1.15fr) minmax(200px, 1.4fr) 96px 120px minmax(230px, auto);
+    gap: 14px; align-items:center;
+    padding: 14px 18px;
+    border-bottom:1px solid var(--border);
+    color: inherit; text-decoration:none;
+  }
+  .order-row:last-child{ border-bottom:none; }
+  a.order-row:hover{ background: var(--muted); text-decoration:none; }
+  .order-list-card{ overflow:hidden; }
+  .list-header{
+    display:grid;
+    grid-template-columns: minmax(190px, 1.15fr) minmax(200px, 1.4fr) 96px 120px minmax(230px, auto);
+    gap:14px; padding: 9px 18px; border-bottom:1px solid var(--border);
+    font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color: var(--muted-fg);
+    background: var(--tabbar-bg);
+  }
+  .pt{ display:flex; align-items:center; gap:11px; min-width:0; }
+  .pt .who{ min-width:0; }
+  .pt .nm{ font-weight:600; font-size:14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pt .meta{ font-size:11.5px; color: var(--muted-fg); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .med .m1{ font-weight:600; font-size:13.5px; }
+  .med .m2{ font-size:11.5px; color: var(--muted-fg); }
+  .paid{ font-weight:700; font-size:13.5px; }
+  .paid small{ display:block; font-weight:500; font-size:10.5px; color: var(--muted-fg); }
+  .row-actions{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }
+  .empty{ padding: 42px 20px; text-align:center; color: var(--muted-fg); font-size: 13.5px; }
+
+  /* ============ ORDER PAGE ============ */
+  .backline{ display:flex; align-items:center; gap:14px; margin-bottom:14px; flex-wrap:wrap; }
+  .backline .spacer{ flex:1; }
+  .pager{ display:flex; align-items:center; gap:6px; font-size:12.5px; color: var(--muted-fg); }
+  .pager button{ width:30px; height:30px; border-radius:8px; border:1px solid var(--border); background: var(--card); cursor:pointer; color:var(--fg); font-size:14px; display:flex; align-items:center; justify-content:center; }
+  .pager button:hover{ background: var(--muted); }
+
+  .order-head{ padding: 18px 22px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; margin-bottom:16px; }
+  .order-head .avatar{ width:46px; height:46px; font-size:16px; flex:0 0 46px; }
+  .order-head h2{ margin:0; font-size:19px; font-weight:800; letter-spacing:-.01em; }
+  .order-head .hmeta{ display:flex; gap:7px 16px; flex-wrap:wrap; font-size:12.5px; color: var(--muted-fg); margin-top:4px; align-items:center; }
+  .order-head .right{ margin-left:auto; text-align:right; display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+  .order-head .amount{ font-size:19px; font-weight:800; }
+  .order-head .amount small{ font-size:11px; font-weight:600; color:var(--muted-fg); display:block; }
+
+  .tabs{
+    display:flex; gap:4px; background: var(--tabbar-bg);
+    border:1px solid var(--border); border-radius: 10px; padding: 4px;
+    margin-bottom:18px; overflow-x:auto;
+  }
+  .tab{
+    flex:1; min-width: 118px;
+    border:none; background:transparent; cursor:pointer;
+    padding: 11px 14px; border-radius: 7px;
+    font-size:13.5px; font-weight:600; color: var(--muted-fg);
+    display:flex; align-items:center; justify-content:center; gap:7px;
+  }
+  .tab:hover{ color: var(--fg); }
+  .tab.on{ background: var(--card); color: var(--accent); box-shadow: var(--shadow); }
+  .tab .tn{
+    font-size:10.5px; font-weight:700; background: var(--muted); color:var(--muted-fg);
+    padding: 0 6px; border-radius:999px;
+  }
+  .tab.on .tn{ background: var(--accent-soft); color: var(--accent); }
+
+  .cols{ display:grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 1fr); gap:16px; align-items:start; }
+  @media (max-width: 980px){ .cols{ grid-template-columns: 1fr; } }
+
+  .sec{ padding: 18px 20px; }
+  .sec + .sec{ margin-top:16px; }
+  .sec h3{
+    margin:0 0 12px; font-size:11px; font-weight:700; letter-spacing:.07em;
+    text-transform:uppercase; color: var(--muted-fg);
+    display:flex; align-items:center; gap:8px;
+  }
+  .sec h3 .rt{ margin-left:auto; text-transform:none; letter-spacing:0; font-size:12px; font-weight:500; }
+
+  .line{
+    border:1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+    display:flex; flex-direction:column; gap:12px; background: var(--bg);
+  }
+  .line + .line{ margin-top:12px; }
+  .line .top{ display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+  .line .medname{ font-size:15px; font-weight:700; }
+  .line .medsub{ font-size:12.5px; color: var(--muted-fg); margin-top:2px; }
+  .line .lprice{ margin-left:auto; text-align:right; }
+  .line .lprice b{ font-size:15px; }
+  .line .lprice span{ display:block; font-size:11px; color: var(--muted-fg); }
+  .sig{ font-size:12.5px; background: var(--card); border:1px dashed var(--border); border-radius:8px; padding: 9px 12px; color: var(--fg); }
+  .sig b{ font-size:10.5px; letter-spacing:.06em; color: var(--muted-fg); display:block; margin-bottom:2px; }
+  .line .foot{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .refills{ display:flex; align-items:center; gap:8px; }
+  .refills label{ font-size:12px; font-weight:600; color: var(--muted-fg); }
+  .seg{ display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden; background: var(--card); }
+  .seg button{
+    border:none; background:transparent; cursor:pointer; padding: 6px 11px;
+    font-size:12.5px; font-weight:600; color: var(--muted-fg);
+    border-right:1px solid var(--border);
+  }
+  .seg button:last-child{ border-right:none; }
+  .seg button.on{ background: var(--accent); color:#fff; }
+  .refnote{ font-size:11.5px; color: var(--muted-fg); }
+  .swapline{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:12.5px; }
+  .swapline select{
+    font-family:inherit; font-size:12.5px; padding: 7px 10px; border-radius:8px;
+    border:1px solid var(--border); background: var(--card); color: var(--fg); max-width: 100%;
+  }
+  .pricediff{ font-size:12px; font-weight:600; }
+  .pricediff.zero{ display:none; }
+  .declined-strip, .approved-strip{
+    border-radius:8px; padding: 9px 12px; font-size:12.5px; font-weight:600;
+  }
+  .approved-strip{ background: var(--success-soft); border:1px solid var(--success-border); color: var(--success); }
+  .declined-strip{ background: var(--destructive-soft); border:1px solid var(--destructive-border); color: var(--destructive); }
+
+  /* snapshot column */
+  .snap .kv{ display:grid; grid-template-columns: 108px 1fr; gap: 7px 12px; font-size:13px; }
+  .snap .kv dt{ color: var(--muted-fg); font-weight:500; }
+  .snap .kv dd{ margin:0; font-weight:600; }
+  .addr{
+    margin-top:4px; background: var(--accent-soft); border:1px solid var(--accent-border);
+    border-radius:8px; padding: 10px 12px; font-size:13px; font-weight:600; line-height:1.5;
+  }
+  .addr small{ display:block; font-weight:700; font-size:10px; letter-spacing:.07em; color: var(--accent); margin-bottom:3px; }
+  .intake-q{ border-top:1px solid var(--border); padding: 9px 0; font-size:12.5px; }
+  .intake-q:first-of-type{ border-top:none; padding-top:0; }
+  .intake-q .q{ color: var(--muted-fg); }
+  .intake-q .a{ font-weight:600; margin-top:1px; }
+  .flags{ display:flex; flex-direction:column; gap:8px; }
+  .flag{ display:flex; gap:9px; align-items:flex-start; font-size:12.5px; padding:9px 11px; border-radius:8px; }
+  .flag.ok{ background: var(--success-soft); border:1px solid var(--success-border); }
+  .flag.warn{ background: var(--warn-soft); border:1px solid var(--warn-border); }
+  .flag b{ display:block; font-size:12.5px; }
+  .flag span{ color: var(--muted-fg); font-size:11.5px; }
+
+  /* action footer */
+  .actionbar{
+    position: sticky; bottom: 0; z-index: 25;
+    margin-top: 18px;
+    background: var(--card); border:1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    padding: 14px 18px;
+    display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+  }
+  .actionbar .hint{ font-size:12px; color: var(--muted-fg); }
+  .actionbar .grow{ flex:1; }
+
+  /* other tabs */
+  .table{ width:100%; border-collapse:collapse; font-size:13px; }
+  .table th{
+    text-align:left; font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    color: var(--muted-fg); padding: 8px 12px; border-bottom:1px solid var(--border); background: var(--tabbar-bg);
+  }
+  .table td{ padding: 10px 12px; border-bottom:1px solid var(--border); }
+  .table tr:last-child td{ border-bottom:none; }
+  .twrap{ overflow-x:auto; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+  .doc-row{ display:flex; align-items:center; gap:12px; padding: 11px 0; border-top:1px solid var(--border); }
+  .doc-row:first-of-type{ border-top:none; padding-top:0; }
+  .doc-ic{
+    width:34px; height:40px; border:1px solid var(--border); border-radius:6px; background: var(--card);
+    display:flex; align-items:center; justify-content:center; font-size:8.5px; font-weight:800; color: var(--destructive);
+    flex:0 0 34px; position:relative;
+  }
+  .doc-row .dn{ font-weight:600; font-size:13px; }
+  .doc-row .dm{ font-size:11.5px; color: var(--muted-fg); }
+  .doc-row .btn{ margin-left:auto; }
+
+  /* toast + undo */
+  .toast-wrap{ position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 90; display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .toast{
+    background: var(--primary); color: var(--primary-fg);
+    border-radius: 10px; padding: 12px 18px; font-size: 13.5px; font-weight:500;
+    box-shadow: var(--shadow-lg); display:flex; align-items:center; gap:14px;
+    animation: pop .18s ease-out;
+  }
+  .toast b{ font-weight:700; }
+  .toast button{
+    border:none; border-radius:7px; padding: 6px 12px; cursor:pointer; font-weight:700; font-size:12.5px;
+    background: var(--primary-fg); color: var(--primary);
+  }
+  @keyframes pop{ from{ opacity:0; transform: translateY(8px);} to{ opacity:1; transform:none;} }
+
+  /* preview modal */
+  .modal-bk{ position:fixed; inset:0; background: rgb(0 0 0 / .45); z-index:80; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .modal{ background: var(--card); border-radius:12px; max-width:560px; width:100%; padding: 22px 24px; box-shadow: var(--shadow-lg); border:1px solid var(--border); }
+  .modal h4{ margin:0 0 6px; font-size:16px; }
+  .modal .m-sub{ color: var(--muted-fg); font-size:12.5px; margin-bottom:14px; }
+  .modal .fake-doc{ border:1px solid var(--border); border-radius:8px; padding:18px; background: var(--bg); font-size:12.5px; line-height:1.7; }
+  .modal .m-foot{ display:flex; justify-content:flex-end; gap:10px; margin-top:16px; }
+
+  /* demo panel */
+  .demo-fab{
+    position: fixed; left: 18px; bottom: 18px; z-index: 70;
+    background: var(--card); color: var(--fg); border:1px solid var(--border);
+    border-radius: 999px; padding: 9px 16px; font-size:12.5px; font-weight:700; cursor:pointer;
+    box-shadow: var(--shadow-lg); display:flex; gap:8px; align-items:center;
+  }
+  .demo-pop{
+    position: fixed; left: 18px; bottom: 64px; z-index: 70; width: 252px;
+    background: var(--card); border:1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-lg); padding: 14px;
+  }
+  .demo-pop h5{ margin:0 0 4px; font-size:12px; letter-spacing:.05em; text-transform:uppercase; color: var(--muted-fg); }
+  .demo-pop .drow{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+  .demo-pop button{ width:100%; }
+  .demo-pop .note{ font-size:11px; color:var(--muted-fg); margin-top:10px; line-height:1.5; }
+
+  /* annotations */
+  .ann{ position:relative; }
+  .ann-dot{
+    position:absolute; z-index: 40;
+    width: 20px; height:20px; border-radius:999px;
+    background: var(--violet); color:#fff; border:none; cursor:pointer;
+    font-size:11px; font-weight:800; line-height:1;
+    display:none; align-items:center; justify-content:center;
+    box-shadow: 0 0 0 4px var(--violet-soft);
+  }
+  body.show-ann .ann-dot{ display:flex; }
+  .ann-card{
+    position:absolute; z-index: 45; width: 262px;
+    background: var(--card); border:1px solid var(--violet); border-radius: 10px;
+    box-shadow: var(--shadow-lg); padding: 12px 14px; font-size:12px; line-height:1.55;
+    display:none;
+  }
+  .ann-card.open{ display:block; }
+  .ann-card b{ color: var(--violet); display:block; font-size:11px; letter-spacing:.05em; text-transform:uppercase; margin-bottom:4px; }
+
+  /* ============ TOUR ============ */
+  .tour-spot{
+    position:fixed; z-index:95; pointer-events:none;
+    border-radius:12px; border:2px solid var(--accent);
+    box-shadow: 0 0 0 4px rgb(37 99 235 / .2);
+    transition: all .28s ease;
+  }
+  #tour-dimc{ position:fixed; inset:0; z-index:94; pointer-events:none; }
+  .tour-card{
+    position:fixed; z-index:96; width:330px; max-width: calc(100vw - 24px);
+    background: var(--card); border:1px solid var(--border); border-radius:12px;
+    box-shadow: var(--shadow-lg); padding:16px 18px;
+  }
+  .tour-card .t-step{ font-size:10.5px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color: var(--accent); margin-bottom:5px; }
+  .tour-card h4{ margin:0 0 8px; font-size:15px; font-weight:700; }
+  .tour-card .t-body{ font-size:12.5px; line-height:1.55; display:flex; flex-direction:column; gap:7px; }
+  .tour-card .t-body b{ color: var(--muted-fg); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; display:block; }
+  .tour-card .t-foot{ display:flex; align-items:center; gap:8px; margin-top:13px; }
+  .tour-card .t-end{ margin-left:auto; border:none; background:none; color: var(--muted-fg); cursor:pointer; font-size:12px; font-weight:600; }
+
+  @media (max-width: 860px){
+    .sidebar{ display:none; }
+    .order-row, .list-header{ grid-template-columns: 1fr 1fr; }
+    .list-header{ display:none; }
+    .row-actions{ justify-content:flex-start; }
+  }
+</style>
+
+<div class="shell" id="app"></div>
+<div class="toast-wrap" id="toasts"></div>
+<div id="overlays"></div>
+<div id="tour-root"></div>
+
+<script>
+/* =====================================================================
+   Minimal Provider Orders — interactive prototype
+   Design language mirrored from minimal-care-portal (shadcn/zinc + Inter)
+   ===================================================================== */
+
+const CONSULT_FEE = 21.50;
+
+const seedOrders = () => ([
+  {
+    id:'ORD-1042', task:'TASK6301', status:'pending',
+    patient:{ name:'Ahmed Larsen', code:'PAT5230', dob:'06/15/1990', age:36, sex:'Male',
+      state:'AK', licensed:true, email:'kopiqyqexi@mailinator.com', phone:'+1 812 438 7856',
+      height:`5 ft 11 in`, weight:'204 lbs', bmi:'28.5', allergies:'No known drug allergies',
+      address:'1200 W Northern Lights Blvd, Apt 14, Anchorage, AK 99503', newPatient:false },
+    ordered:'Aug 12, 2026', due:'Aug 13, 2026',
+    lines:[{ med:'Sildenafil 55mg (Yellow/White)', sub:'55mg · Capsules · 8 capsules', price:82.08,
+      sig:'Take 1 capsule by mouth 30–60 minutes before activity. Max 1 capsule in 24 hours.',
+      refills:3, declined:false,
+      swaps:[{label:'Sildenafil 55mg (Yellow/White) — $82.08', d:0},{label:'Sildenafil 100mg (White) — $96.00', d:13.92},{label:'Tadalafil 10mg (Yellow) — $88.50', d:6.42}], swapIdx:0 }],
+    intake:[
+      {q:'Reason for request', a:'Difficulty maintaining erection, ~6 months'},
+      {q:'Nitrates or nitric-oxide donors?', a:'No'},
+      {q:'Cardiac history / chest pain?', a:'None reported'},
+      {q:'Current medication', a:'Lisinopril 10mg daily'}],
+    docs:[
+      {name:'intake-form-6301.pdf', kind:'Intake', date:'08/12/2026'},
+      {name:'Program-Plan-Phase-1-DOCS0853.pdf', kind:'Program Plan', date:'08/13/2026'}],
+    pastOrders:[
+      {id:'ORD-0961', med:'Sildenafil 55mg · 8 caps', date:'Jul 08, 2026', status:'Delivered', paid:82.08},
+      {id:'ORD-0883', med:'Sildenafil 55mg · 8 caps', date:'Jun 02, 2026', status:'Delivered', paid:82.08}],
+    prevRx:[
+      {med:'Sildenafil 55mg', signed:'Jul 08, 2026', by:'Dr. Safa Ghori', refills:'0 of 0 used', status:'Fulfilled'}]
+  },
+  {
+    id:'ORD-1046', task:'TASK6311', status:'pending',
+    patient:{ name:'Karyn Love', code:'PAT5238', dob:'03/22/1991', age:35, sex:'Female',
+      state:'CO', licensed:true, email:'mahi@mailinator.com', phone:'+1 541 482 9319',
+      height:'5 ft 6 in', weight:'149 lbs', bmi:'24.0', allergies:'Penicillin (rash)',
+      address:'2244 Blake St, Unit 3B, Denver, CO 80205', newPatient:true },
+    ordered:'Aug 19, 2026', due:'Aug 21, 2026',
+    lines:[{ med:'Enclomiphene 12.5mg', sub:'12.5mg · Tablets · 30 tablets', price:124.00,
+      sig:'Take 1 tablet by mouth once daily.',
+      refills:3, declined:false,
+      swaps:[{label:'Enclomiphene 12.5mg — $124.00', d:0},{label:'Enclomiphene 6.25mg — $124.00', d:0}], swapIdx:0 }],
+    intake:[
+      {q:'Reason for request', a:'Low energy, low libido; prior labs show low-normal T'},
+      {q:'Trying to conceive?', a:'Partner — yes, within 12 months'},
+      {q:'Liver disease?', a:'No'},
+      {q:'Current medication', a:'None'}],
+    docs:[
+      {name:'intake-form-6311.pdf', kind:'Intake', date:'08/19/2026'},
+      {name:'lab-panel-quest-0812.pdf', kind:'Lab Report', date:'08/12/2026'}],
+    pastOrders:[],
+    prevRx:[]
+  },
+  {
+    id:'ORD-1044', task:'TASK6310', status:'refill',
+    patient:{ name:'Bree Carney', code:'PAT5237', dob:'11/02/1988', age:37, sex:'Female',
+      state:'MN', licensed:true, email:'xujofy@mailinator.com', phone:'+1 367 813 6061',
+      height:'5 ft 4 in', weight:'176 lbs', bmi:'30.2', allergies:'No known drug allergies',
+      address:'480 Cedar Lake Rd S, Minneapolis, MN 55405', newPatient:false },
+    ordered:'Aug 18, 2026', due:'Aug 20, 2026',
+    refillInfo:{ n:2, of:3, prev:'Jul 18, 2026' },
+    lines:[{ med:'Oral Semaglutide 2mg', sub:'2mg · ODT · 30 tablets', price:199.00,
+      sig:'Dissolve 1 tablet under the tongue once daily on an empty stomach.',
+      refills:0, titrates:true, declined:false, swaps:[{label:'Oral Semaglutide 2mg — $199.00', d:0}], swapIdx:0 }],
+    intake:[
+      {q:'Check-in — side effects?', a:'Mild nausea week 1, resolved'},
+      {q:'Current weight', a:'176 lbs (−9 lbs since start)'},
+      {q:'Any new medication?', a:'No'}],
+    docs:[{name:'checkin-form-6310.pdf', kind:'Check-in', date:'08/18/2026'}],
+    pastOrders:[
+      {id:'ORD-0989', med:'Oral Semaglutide 2mg · refill 1 of 3', date:'Jul 18, 2026', status:'Delivered', paid:199.00},
+      {id:'ORD-0912', med:'Oral Semaglutide 2mg · initial', date:'Jun 17, 2026', status:'Delivered', paid:199.00}],
+    prevRx:[
+      {med:'Oral Semaglutide 2mg', signed:'Jun 17, 2026', by:'Dr. Safa Ghori', refills:'2 of 3 used', status:'Active'}]
+  },
+  {
+    id:'ORD-1038', task:'TASK6288', status:'approved',
+    patient:{ name:'Mark Test', code:'PAT5073', dob:'09/09/1992', age:33, sex:'Male',
+      state:'AK', licensed:true, email:'marktest@mail.com', phone:'+1 737 545 1324',
+      height:'5 ft 10 in', weight:'190 lbs', bmi:'27.3', allergies:'No known drug allergies',
+      address:'737 E Fireweed Ln, Anchorage, AK 99503', newPatient:false },
+    ordered:'Aug 11, 2026', due:'Aug 12, 2026', decidedAt:'Aug 12, 2026',
+    lines:[{ med:'Sildenafil 55mg (Yellow/White)', sub:'55mg · Capsules · 8 capsules', price:82.08,
+      sig:'Take 1 capsule by mouth 30–60 minutes before activity.',
+      refills:3, declined:false, swaps:[{label:'Sildenafil 55mg (Yellow/White) — $82.08', d:0}], swapIdx:0 }],
+    intake:[{q:'Reason for request', a:'Follow-up order, tolerating well'},{q:'Side effects?', a:'None'}],
+    docs:[{name:'intake-form-6236.pdf', kind:'Intake', date:'08/11/2026'}],
+    pastOrders:[{id:'ORD-0966', med:'Sildenafil 55mg · 8 caps', date:'Jul 10, 2026', status:'Delivered', paid:82.08}],
+    prevRx:[{med:'Sildenafil 55mg', signed:'Aug 12, 2026', by:'Dr. Safa Ghori', refills:'0 of 3 used', status:'Active'}]
+  },
+  {
+    id:'ORD-1035', task:'TASK6281', status:'declined',
+    patient:{ name:'AK Tester', code:'PAT5220', dob:'01/15/1990', age:36, sex:'Male',
+      state:'AK', licensed:true, email:'developer+qa-akgz5c@crosseven.com', phone:'+1 907 555 0123',
+      height:'6 ft 0 in', weight:'212 lbs', bmi:'28.8', allergies:'No known drug allergies',
+      address:'901 E 6th Ave, Anchorage, AK 99501', newPatient:true },
+    ordered:'Aug 05, 2026', due:'Aug 06, 2026', decidedAt:'Aug 05, 2026',
+    declineReason:'Intake reports nitrate use (isosorbide) — contraindicated. Refunded $82.08.',
+    lines:[{ med:'Sildenafil 55mg (Yellow/White)', sub:'55mg · Capsules · 8 capsules', price:82.08,
+      sig:'—', refills:0, declined:true, swaps:[{label:'Sildenafil 55mg (Yellow/White) — $82.08', d:0}], swapIdx:0 }],
+    intake:[{q:'Nitrates or nitric-oxide donors?', a:'Yes — isosorbide mononitrate'},{q:'Cardiac history?', a:'Angina (2023)'}],
+    docs:[{name:'intake-form-6281.pdf', kind:'Intake', date:'08/05/2026'}],
+    pastOrders:[], prevRx:[]
+  }
+]);
+
+/* ---------- state ---------- */
+let orders;
+let annOn = false, guideOn = true, currentTab = 'order', demoOpen = false, declineOpen = false;
+let undoTimer = null, undoSnapshot = null;
+
+const store = {
+  load(){
+    try{
+      const raw = localStorage.getItem('mpo-state-v1');
+      if(raw){ const s = JSON.parse(raw); if(Array.isArray(s.orders) && s.orders.length){ orders = s.orders; guideOn = s.guideOn !== false; return; } }
+    }catch(e){}
+    orders = seedOrders();
+  },
+  save(){
+    try{ localStorage.setItem('mpo-state-v1', JSON.stringify({ orders, guideOn })); }catch(e){}
+  },
+  reset(){
+    try{ localStorage.removeItem('mpo-state-v1'); }catch(e){}
+    orders = seedOrders(); guideOn = true;
+  }
+};
+
+/* ---------- helpers ---------- */
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const money = n => '$' + n.toFixed(2);
+const initials = n => n.split(/\s+/).map(w=>w[0]).slice(0,2).join('').toUpperCase();
+const byId = id => orders.find(o=>o.id===id);
+const pendings = () => orders.filter(o=>o.status==='pending' || o.status==='refill');
+
+const statusPill = o => {
+  if(o.status==='pending') return `<span class="pill blue"><span class="dot"></span>Needs review</span>`;
+  if(o.status==='refill')  return `<span class="pill amber"><span class="dot"></span>Refill ${o.refillInfo.n} of ${o.refillInfo.of}</span>`;
+  if(o.status==='approved')return `<span class="pill green"><span class="dot"></span>Approved</span>`;
+  if(o.status==='declined')return `<span class="pill red"><span class="dot"></span>Declined</span>`;
+  return '';
+};
+
+const orderTotal = o => o.lines.reduce((s,l)=> s + l.price + (l.swaps[l.swapIdx]?.d||0), 0);
+
+/* ---------- routing ---------- */
+function route(){
+  const h = location.hash || '#orders';
+  const m = h.match(/^#order\/([A-Z0-9-]+)/);
+  if(m && byId(m[1])) return { view:'order', id:m[1] };
+  return { view:'orders' };
+}
+window.addEventListener('hashchange', ()=>{
+  currentTab='order'; declineOpen=false;
+  if(tourIdx>=0 && TOUR[tourIdx] && TOUR[tourIdx].pre) TOUR[tourIdx].pre();
+  render();
+  if(tourIdx>=0) setTimeout(placeTour, 80);
+});
+
+/* ---------- chrome ---------- */
+const ICONS = {
+  tasks:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
+  orders:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 01-8 0"/></svg>',
+  patients:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>',
+  msg:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>',
+  pay:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/></svg>',
+  chart:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 20V10M12 20V4M6 20v-6"/></svg>',
+  lic:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h4M15 12h4M5 18h14"/></svg>',
+  cal:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>',
+  gear:'<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>'
+};
+
+function sidebar(activeOrders){
+  const pend = pendings().length;
+  const items = [
+    { k:'tasks', label:'Tasks', ic:ICONS.tasks },
+    { k:'orders', label:'Orders', ic:ICONS.orders, active:activeOrders, count:pend, isNew:true },
+    { k:'patients', label:'All Patients', ic:ICONS.patients },
+    { k:'msg', label:'Messages', ic:ICONS.msg },
+    { k:'pay', label:'Payment History', ic:ICONS.pay },
+    { k:'an', label:'Analytics', ic:ICONS.chart },
+    { k:'tan', label:'Task Analytics', ic:ICONS.chart },
+    { k:'lic', label:'Medical Licenses', ic:ICONS.lic },
+    { k:'sch', label:'Schedule', ic:ICONS.cal },
+    { k:'set', label:'Settings', ic:ICONS.gear },
+  ];
+  return `<aside class="sidebar ann">
+    <div class="brand"><span class="brand-mark"><i></i><i></i><i></i></span><b>Minimal</b></div>
+    ${items.map(it=>`
+      <button class="nav-item ${it.active?'active':''}" ${it.k==='orders'?'onclick="location.hash=\'#orders\'"':'onclick="toast(\'Prototype — only the new Orders section is wired up.\')"'} >
+        ${it.ic}<span>${it.label}</span>
+        ${it.active && it.count ? `<span class="count num">${it.count}</span>` : (it.isNew && !it.active ? '<span class="nav-new">NEW</span>' : '')}
+      </button>`).join('')}
+    <div class="foot">Minimal EHR Portal<br>Provider view</div>
+    <button class="ann-dot" style="top:150px; right:-10px;" onclick="annToggle('a-nav')" aria-label="annotation">1</button>
+    <div class="ann-card" id="a-nav" style="top:174px; left:190px;">
+      <b>New sidebar entry</b>
+      RX orders get their own section — the Tasks queue stays for medical evaluations and follow-ups, exactly as decided in the 21 Aug sync.
+    </div>
+  </aside>`;
+}
+
+function topbar(crumb){
+  return `<div class="topbar">
+    <span class="crumb">${crumb}</span>
+    <div class="avatar dr">SG</div>
+    <span style="font-size:12.5px; font-weight:600;">Dr. Safa Ghori</span>
+  </div>`;
+}
+
+/* ---------- ORDERS LIST ---------- */
+let filter = 'needs';
+function setFilter(f){ filter = f; render(); }
+
+function listView(){
+  const groups = {
+    needs: o => o.status==='pending' || o.status==='refill',
+    approved: o => o.status==='approved',
+    declined: o => o.status==='declined',
+    all: () => true
+  };
+  const shown = orders.filter(groups[filter] || groups.all);
+  const nNeeds = orders.filter(groups.needs).length;
+  const nAppr = orders.filter(groups.approved).length;
+  const nDecl = orders.filter(groups.declined).length;
+
+  const rows = shown.map(o => {
+    const l = o.lines[0];
+    const acts = (o.status==='pending' || o.status==='refill') ? `
+      <button class="btn primary sm" onclick="event.preventDefault(); location.hash='#order/${o.id}'">Open &amp; review</button>
+      ${o.status==='refill' ? `<button class="btn outline-blue sm" onclick="event.preventDefault(); quickApprove('${o.id}')">Approve refill</button>`:''}
+      <button class="btn outline sm" onclick="event.preventDefault(); openDoc('${o.id}',0)">Docs<span class="tn num" style="margin-left:2px">${o.docs.length}</span></button>`
+      : `<button class="btn outline sm" onclick="event.preventDefault(); location.hash='#order/${o.id}'">View</button>`;
+    return `<a class="order-row" href="#order/${o.id}" title="Ctrl-click opens in a new tab">
+      <div class="pt">
+        <div class="avatar">${initials(o.patient.name)}</div>
+        <div class="who">
+          <div class="nm">${esc(o.patient.name)} ${o.patient.newPatient?'<span class="pill amber" style="margin-left:4px">New patient</span>':''}</div>
+          <div class="meta num">${o.patient.code} · ${o.patient.state} · DOB ${o.patient.dob}</div>
+        </div>
+      </div>
+      <div class="med">
+        <div class="m1">${esc(l.med)}${o.lines.length>1?` <span class="pill gray num">+${o.lines.length-1} more</span>`:''}</div>
+        <div class="m2">${esc(l.sub)}${o.status==='refill'?` · refill ${o.refillInfo.n} of ${o.refillInfo.of}`:''}</div>
+      </div>
+      <div class="paid num">${money(orderTotal(o))}<small>Paid</small></div>
+      <div>${statusPill(o)}<div class="meta num" style="font-size:11px;color:var(--muted-fg);margin-top:3px;">${o.ordered}</div></div>
+      <div class="row-actions">${acts}</div>
+    </a>`;
+  }).join('');
+
+  return `
+  ${guideOn ? `<div class="guide"><b>Prototype.</b> This is the proposed Orders section in the current portal design. <button class="btn blue sm" onclick="startTour()">▶ Start walkthrough</button> or click around freely — demo controls are bottom-left. <button class="x" onclick="guideOn=false; store.save(); render()" aria-label="Dismiss">✕</button></div>`:''}
+  <div class="page-head ann">
+    <div>
+      <h1>Orders</h1>
+      <div class="sub">RX orders only — evaluations and follow-ups stay in Tasks</div>
+    </div>
+    <div class="stats">
+      <div class="stat hot"><b class="num">${nNeeds}</b><span>Needs review</span></div>
+      <div class="stat"><b class="num">${nAppr}</b><span>Approved</span></div>
+      <div class="stat"><b class="num">${nDecl}</b><span>Declined</span></div>
+    </div>
+    <button class="ann-dot" style="top:6px; left:118px;" onclick="annToggle('a-scope')">2</button>
+    <div class="ann-card" id="a-scope" style="top:32px; left:118px;">
+      <b>Order-only scope</b>
+      “We are planning for orders for now” — one page, every RX order listed, LifeRx-style. Follow-up / evaluation tasks are deliberately out.
+    </div>
+  </div>
+  <div class="filters">
+    <button class="chip ${filter==='needs'?'on':''}" onclick="setFilter('needs')">Needs review<span class="n num">${nNeeds}</span></button>
+    <button class="chip ${filter==='approved'?'on':''}" onclick="setFilter('approved')">Approved<span class="n num">${nAppr}</span></button>
+    <button class="chip ${filter==='declined'?'on':''}" onclick="setFilter('declined')">Declined<span class="n num">${nDecl}</span></button>
+    <button class="chip ${filter==='all'?'on':''}" onclick="setFilter('all')">All<span class="n num">${orders.length}</span></button>
+  </div>
+  <div class="card order-list-card ann">
+    <div class="list-header"><span>Patient</span><span>Medication</span><span>Paid</span><span>Status</span><span style="text-align:right">Actions</span></div>
+    ${rows || `<div class="empty">Nothing here — you're all caught up. 🎉</div>`}
+    <button class="ann-dot" style="top:46px; right:14px;" onclick="annToggle('a-inline')">3</button>
+    <div class="ann-card" id="a-inline" style="top:72px; right:14px;">
+      <b>Inline actions, big targets</b>
+      Every row is a real link — Ctrl-click opens ten orders in ten tabs (Miller's actual workflow), each a full standalone page. Inline one-click Approve appears only on refill re-authorizations; anything new opens the page first — that's the safe line (Epic's one-click macros once silently inverted decisions).
+    </div>
+  </div>`;
+}
+
+/* ---------- ORDER PAGE ---------- */
+function orderView(id){
+  const o = byId(id);
+  const p = o.patient;
+  const pend = pendings();
+  const idx = pend.findIndex(x=>x.id===id);
+  const decided = o.status==='approved' || o.status==='declined';
+
+  const tabs = [
+    {k:'order', label:'Order', n:o.lines.length},
+    {k:'patient', label:'Patient', n:null},
+    {k:'past', label:'Past Orders', n:o.pastOrders.length},
+    {k:'docs', label:'Documents', n:o.docs.length},
+    {k:'rx', label:'Prev Prescriptions', n:o.prevRx.length},
+  ];
+
+  return `
+  <div class="backline">
+    <a href="#orders">← All orders</a>
+    <span class="spacer"></span>
+    ${idx>=0?`<span class="pager"><span class="num">${idx+1} of ${pend.length} pending</span>
+      <button onclick="stepOrder(-1)" aria-label="Previous order">‹</button>
+      <button onclick="stepOrder(1)" aria-label="Next order">›</button></span>`:''}
+  </div>
+
+  <div class="card order-head ann">
+    <div class="avatar">${initials(p.name)}</div>
+    <div>
+      <h2>${esc(p.name)}</h2>
+      <div class="hmeta num">
+        <span>${p.code}</span><span>DOB ${p.dob} · ${p.age} yrs · ${p.sex}</span>
+        <span class="pill ${p.licensed?'green':'red'}">${p.licensed?'✓ Licensed in '+p.state:'✗ Not licensed in '+p.state}</span>
+        ${p.newPatient?'<span class="pill amber">New patient</span>':''}
+        ${o.status==='refill'?`<span class="pill amber">Refill ${o.refillInfo.n} of ${o.refillInfo.of}</span>`:''}
+      </div>
+    </div>
+    <div class="right">
+      <div class="amount num">${money(orderTotal(o))}<small>Paid · ${o.id} · ordered ${o.ordered}</small></div>
+      ${statusPill(o)}
+    </div>
+    <button class="ann-dot" style="bottom:-10px; left:24px;" onclick="annToggle('a-head')">4</button>
+    <div class="ann-card" id="a-head" style="bottom:-120px; left:24px;">
+      <b>Decision context upfront</b>
+      Identity, licence match, payment and new-vs-returning — visible before scrolling. No Overview tab hunt.
+    </div>
+  </div>
+
+  <div class="tabs ann">
+    ${tabs.map(t=>`<button class="tab ${currentTab===t.k?'on':''}" onclick="setTab('${t.k}')">${t.label}${t.n!==null?`<span class="tn num">${t.n}</span>`:''}</button>`).join('')}
+    <button class="ann-dot" style="top:-10px; right:8px;" onclick="annToggle('a-tabs')">5</button>
+    <div class="ann-card" id="a-tabs" style="top:18px; right:8px;">
+      <b>7 tabs → 5, reordered</b>
+      Order first (“order evaluation is the first tab”), then patient context. Visit Note auto-generates on approval; Messages dropped — “he doesn't look at it”.
+    </div>
+  </div>
+
+  ${currentTab==='order' ? tabOrder(o) : ''}
+  ${currentTab==='patient' ? tabPatient(o) : ''}
+  ${currentTab==='past' ? tabPast(o) : ''}
+  ${currentTab==='docs' ? tabDocs(o) : ''}
+  ${currentTab==='rx' ? tabRx(o) : ''}
+
+  ${!decided ? actionbar(o) : decidedBar(o)}
+  `;
+}
+
+function tabOrder(o){
+  const p = o.patient;
+  const linesHtml = o.lines.map((l, i) => {
+    const d = l.swaps[l.swapIdx]?.d || 0;
+    return `<div class="line">
+      <div class="top">
+        <div>
+          <div class="medname">${esc(l.med)}</div>
+          <div class="medsub">${esc(l.sub)}</div>
+        </div>
+        <div class="lprice num"><b>${money(l.price + d)}</b><span>paid ${o.status==='refill'?'(refill — no charge to review)':''}</span></div>
+      </div>
+      <div class="sig"><b>DIRECTIONS (SIG)</b>${esc(l.sig)}</div>
+      ${l.declined ? `<div class="declined-strip">Line declined — will be refunded ${money(l.price)} on sign-off. <a href="javascript:void(0)" onclick="toggleLine('${o.id}',${i})">Restore</a></div>` : `
+      <div class="foot">
+        <div class="refills ann" style="position:relative;">
+          <label for="ref-${i}">Refills</label>
+          ${l.titrates
+            ? `<span class="pill amber">Dose titrates — re-evaluate each cycle</span><span class="refnote">no standing refills; next cycle returns here pre-filled at the next protocol dose</span>`
+            : `<span class="seg" role="group" aria-label="Refill count">
+                ${[0,1,2,3,5].map(n=>`<button class="${l.refills===n?'on':''}" onclick="setRefills('${o.id}',${i},${n})">${n===0?'None':n}</button>`).join('')}
+              </span>
+              <span class="refnote">${l.refills>0?`auto-ships each cycle — no task for you, stops after ${l.refills}`:`patient re-evaluated next cycle`}</span>`}
+          <button class="ann-dot" style="top:-12px; left:44px;" onclick="annToggle('a-ref-${i}')">10</button>
+          <div class="ann-card" id="a-ref-${i}" style="top:14px; left:44px;">
+            <b>Refill cap — a new safety control</b>
+            Today auto-refill is unlimited: the cron clones the prescription with no task and no review until someone cancels. This selector puts the count in the doctor's signature, TelyRx / LifeFile style.
+          </div>
+        </div>
+        ${o.lines.length>1?`<button class="btn outline sm" onclick="toggleLine('${o.id}',${i})">Decline this line</button>`:''}
+      </div>`}
+      ${l.swaps.length>1 ? (
+        (l.swapOpen || l.swapIdx>0)
+        ? `<div class="swapline">
+            <span style="font-weight:600; color:var(--muted-fg);">Swap</span>
+            <select onchange="setSwap('${o.id}',${i},this.selectedIndex)" aria-label="Swap medication">
+              ${l.swaps.map((s,si)=>`<option ${si===l.swapIdx?'selected':''}>${esc(s.label)}</option>`).join('')}
+            </select>
+            <span class="pricediff ${d===0?'zero':''}" style="color:${d>0?'var(--warn)':'var(--success)'}">
+              ${d>0?`+${money(d)} — patient auto-charged`:`${money(d)} — auto-refunded`}
+            </span>
+            ${l.swapIdx===0?`<a href="javascript:void(0)" style="font-size:12px" onclick="toggleSwap('${o.id}',${i})">Cancel</a>`:''}
+          </div>`
+        : `<div class="swapline"><a href="javascript:void(0)" style="font-size:12px" onclick="toggleSwap('${o.id}',${i})">Swap medication (${l.swaps.length-1} alternative${l.swaps.length>2?'s':''}) →</a></div>`
+      ) : ''}
+    </div>`;
+  }).join('');
+
+  return `<div class="cols ann">
+    <div>
+      <div class="card sec" id="sec-items">
+        <h3>Items ordered <span class="rt num">${o.lines.length} line${o.lines.length>1?'s':''}</span></h3>
+        ${linesHtml}
+      </div>
+      <button class="ann-dot" style="top:170px; left:-10px;" onclick="annToggle('a-price')">6</button>
+      <div class="ann-card" id="a-price" style="top:196px; left:-10px;">
+        <b>Price difference — only when it matters</b>
+        The permanent “Price difference: no adjustment needed” block is gone. It appears only when a swap actually changes the price.
+      </div>
+    </div>
+    <div class="snap">
+      <div class="card sec">
+        <h3>Patient snapshot <span class="rt"><a href="javascript:void(0)" onclick="setTab('patient')">Full profile →</a></span></h3>
+        <dl class="kv">
+          <dt>Height / Weight</dt><dd class="num">${p.height} · ${p.weight} (BMI ${p.bmi})</dd>
+          <dt>Allergies</dt><dd>${esc(p.allergies)}</dd>
+          <dt>Past orders</dt><dd class="num">${o.pastOrders.length} ${o.pastOrders.length?`· last ${o.pastOrders[0].date}`:''}</dd>
+        </dl>
+        <div class="addr ann"><small>SHIPS TO</small>${esc(p.address)}
+          <button class="ann-dot" style="top:-10px; right:-10px;" onclick="annToggle('a-addr')">7</button>
+          <div class="ann-card" id="a-addr" style="top:16px; right:-10px;">
+            <b>Address, finally visible</b>
+            The order's shipping snapshot already reaches the drawer's data today (orders.shippingAddress) — it's just never rendered. Here it's pinned to the decision screen.
+          </div>
+        </div>
+      </div>
+      <div class="card sec">
+        <h3>Intake highlights <span class="rt"><a href="javascript:void(0)" onclick="openDoc('${o.id}',0)">Open intake PDF</a></span></h3>
+        ${o.intake.map(x=>`<div class="intake-q"><div class="q">${esc(x.q)}</div><div class="a">${esc(x.a)}</div></div>`).join('')}
+      </div>
+      <div class="card sec" id="sec-safety">
+        <h3>Safety</h3>
+        <div class="flags">
+          ${o.status==='declined'
+            ? `<div class="flag warn"><div><b>Contraindication</b><span>${esc(o.declineReason||'')}</span></div></div>`
+            : `<div class="flag ok"><div><b>No interaction flags</b><span>Intake screened against active medication list</span></div></div>`}
+          ${p.newPatient?`<div class="flag warn"><div><b>New patient — first prescription</b><span>Full review required; quick approve from the list is disabled</span></div></div>`:''}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function tabPatient(o){
+  const p = o.patient;
+  return `<div class="card sec">
+    <h3>Demographics &amp; contact</h3>
+    <div class="cols" style="grid-template-columns:1fr 1fr;">
+      <dl class="kv snap">
+        <dt>Full name</dt><dd>${esc(p.name)}</dd>
+        <dt>Patient code</dt><dd class="num">${p.code}</dd>
+        <dt>DOB / Age</dt><dd class="num">${p.dob} · ${p.age} yrs</dd>
+        <dt>Sex</dt><dd>${p.sex}</dd>
+        <dt>Height / Weight</dt><dd class="num">${p.height} · ${p.weight}</dd>
+        <dt>BMI</dt><dd class="num">${p.bmi}</dd>
+      </dl>
+      <dl class="kv snap">
+        <dt>Email</dt><dd style="word-break:break-all">${esc(p.email)}</dd>
+        <dt>Phone</dt><dd class="num">${esc(p.phone)}</dd>
+        <dt>State</dt><dd>${p.state} ${p.licensed?'· you are licensed ✓':''}</dd>
+        <dt>Allergies</dt><dd>${esc(p.allergies)}</dd>
+        <dt>Shipping</dt><dd>${esc(p.address)}</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="card sec" style="margin-top:16px;">
+    <h3>Complete intake</h3>
+    ${o.intake.map(x=>`<div class="intake-q"><div class="q">${esc(x.q)}</div><div class="a">${esc(x.a)}</div></div>`).join('')}
+  </div>`;
+}
+
+function tabPast(o){
+  return `<div class="twrap"><table class="table">
+    <thead><tr><th>Order</th><th>Medication</th><th>Date</th><th>Paid</th><th>Status</th></tr></thead>
+    <tbody>
+    ${o.pastOrders.length ? o.pastOrders.map(x=>`
+      <tr><td class="num">${x.id}</td><td>${esc(x.med)}</td><td class="num">${x.date}</td><td class="num">${money(x.paid)}</td>
+      <td><span class="pill ${x.status==='Delivered'?'green':'gray'}">${x.status}</span></td></tr>`).join('')
+      : `<tr><td colspan="5" class="empty">No previous orders — this is ${esc(o.patient.name.split(' ')[0])}'s first.</td></tr>`}
+    </tbody></table></div>`;
+}
+
+function tabDocs(o){
+  return `<div class="card sec ann">
+    <h3>Documents <span class="rt num">${o.docs.length} file${o.docs.length!==1?'s':''}</span></h3>
+    ${o.docs.map((d,i)=>`<div class="doc-row">
+      <div class="doc-ic">PDF</div>
+      <div><div class="dn">${esc(d.name)}</div><div class="dm">${d.kind} · ${d.date}</div></div>
+      <button class="btn outline sm" onclick="openDoc('${o.id}',${i})">View</button>
+    </div>`).join('')}
+    <button class="ann-dot" style="top:14px; right:52px;" onclick="annToggle('a-docs')">8</button>
+    <div class="ann-card" id="a-docs" style="top:40px; right:52px;">
+      <b>Documents made small</b>
+      “Documents बड़ा-बड़ा बिल्कुल नहीं” — compact rows instead of giant tiles; the intake's key answers are already inline on the Order tab.
+    </div>
+  </div>`;
+}
+
+function tabRx(o){
+  return `<div class="twrap"><table class="table">
+    <thead><tr><th>Medication</th><th>Signed</th><th>Prescriber</th><th>Refills</th><th>Status</th></tr></thead>
+    <tbody>
+    ${o.prevRx.length ? o.prevRx.map(x=>`
+      <tr><td>${esc(x.med)}</td><td class="num">${x.signed}</td><td>${esc(x.by)}</td><td class="num">${x.refills}</td>
+      <td><span class="pill ${x.status==='Active'?'green':'gray'}">${x.status}</span></td></tr>`).join('')
+      : `<tr><td colspan="5" class="empty">No previous prescriptions on file.</td></tr>`}
+    </tbody></table></div>`;
+}
+
+function actionbar(o){
+  const live = o.lines.filter(l=>!l.declined);
+  const nDecl = o.lines.length - live.length;
+  const refillsTxt = live.map(l=>l.titrates?'cycle':l.refills).join(', ');
+  const approveLabel = nDecl>0 ? `Approve ${live.length} &amp; Sign` : 'Approve &amp; Sign';
+  return `<div class="actionbar ann">
+    <button class="btn soft-red ${live.length>0?'':'xl'}" onclick="declineOpen=!declineOpen; render()">Decline &amp; refund ${o.patient.newPatient?'':'<span class="kbd">D</span>'}</button>
+    <span class="hint">${live.length>0?`Signs ${live.length} of ${o.lines.length} line${o.lines.length>1?'s':''} · refills: ${refillsTxt} · held 5 s before transmit, then auto-advances`:'All lines declined — decline refunds the full order'}</span>
+    <span class="grow"></span>
+    <button class="btn outline" onclick="toast('Request sent — the patient gets a secure form link.')">Request info</button>
+    ${live.length>0
+      ? `<button class="btn primary xl" onclick="approve('${o.id}')">${approveLabel} <span class="kbd">A</span></button>`
+      : ``}
+    <button class="ann-dot" style="top:-10px; left:100px;" onclick="annToggle('a-approve')">9</button>
+    <div class="ann-card" id="a-approve" style="top:-170px; left:100px;">
+      <b>One click, undo instead of confirm</b>
+      Same economy as Epic's “Sign All”. No dialog — the signature is held 5 seconds with an Undo, then transmits, and the next pending order loads by itself (“back नहीं आता” solved). Decline keeps its reason step on purpose.
+    </div>
+    ${declineOpen ? `<div style="flex-basis:100%; display:flex; gap:10px; align-items:center; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:12px;">
+      <label style="font-size:12.5px; font-weight:600; color:var(--muted-fg);">Reason</label>
+      <select id="decline-reason" style="font-family:inherit; font-size:12.5px; padding:8px 10px; border-radius:8px; border:1px solid var(--border); background:var(--card); color:var(--fg);">
+        <option>Contraindication found in intake</option>
+        <option>Intake incomplete or inconsistent</option>
+        <option>Requires a synchronous visit (state rule)</option>
+        <option>Other — will message patient</option>
+      </select>
+      <button class="btn soft-red" onclick="decline('${o.id}')">Confirm decline &amp; refund ${money(orderTotal(o))}</button>
+      <button class="btn outline sm" onclick="declineOpen=false; render()">Cancel</button>
+    </div>`:''}
+  </div>`;
+}
+
+function decidedBar(o){
+  const nDecl = o.lines.filter(l=>l.declined).length;
+  const partial = o.status==='approved' && nDecl>0;
+  return `<div class="actionbar">
+    ${o.status==='approved'
+      ? `<span class="approved-strip">✓ ${partial?`Partially approved (${o.lines.length-nDecl} of ${o.lines.length} lines)`:'Approved &amp; signed'} ${o.decidedAt?('· '+o.decidedAt):''} — prescription sent to fulfilment${o.lines[0].refills&&!o.lines[0].titrates?`, ${o.lines[0].refills} refills will auto-fulfil then stop`:''}${partial?'; declined lines refunded':''}.</span>`
+      : `<span class="declined-strip">✕ Declined ${o.decidedAt?('· '+o.decidedAt):''} — ${esc(o.declineReason||'patient refunded in full.')}</span>`}
+    <span class="grow"></span>
+    <button class="btn outline" onclick="reopen('${o.id}')">Reopen</button>
+  </div>`;
+}
+
+/* ---------- actions ---------- */
+function setTab(t){ currentTab = t; declineOpen = false; render(); }
+
+function setRefills(id, li, n){ const o = byId(id); o.lines[li].refills = n; store.save(); render(); }
+function setSwap(id, li, si){ const o = byId(id); o.lines[li].swapIdx = si; store.save(); render(); }
+function toggleLine(id, li){ const o = byId(id); o.lines[li].declined = !o.lines[li].declined; store.save(); render(); }
+function toggleSwap(id, li){ const o = byId(id); o.lines[li].swapOpen = !o.lines[li].swapOpen; store.save(); render(); }
+
+function snapshotFor(id){
+  const o = byId(id);
+  return JSON.stringify(o);
+}
+function restoreSnapshot(snap){
+  const o = JSON.parse(snap);
+  const i = orders.findIndex(x=>x.id===o.id);
+  if(i>=0) orders[i] = o;
+}
+
+function finishDecision(o, kind){
+  undoSnapshot && clearTimeout(undoTimer);
+  const snap = undoSnapshot; // previous pending undo is committed implicitly
+  undoSnapshot = null;
+
+  const before = snapshotFor(o.id);
+  o.status = kind;
+  o.decidedAt = 'Aug 21, 2026';
+  if(kind==='declined' && !o.declineReason) o.declineReason = 'patient refunded in full.';
+  store.save();
+
+  const next = pendings()[0];
+  const med = o.lines[0].med.split(' (')[0];
+  const msg = kind==='approved'
+    ? `<b>Approved &amp; signed</b> — ${esc(med)} for ${esc(o.patient.name)}${o.lines[0].refills?` · ${o.lines[0].refills} refills`:''}`
+    : `<b>Declined</b> — ${esc(o.patient.name)} refunded ${money(orderTotal(o))}`;
+
+  toastUndo(msg, before, () => {
+    if(next){ location.hash = '#order/' + next.id; }
+    else { location.hash = '#orders'; }
+  });
+
+  if(next){ location.hash = '#order/' + next.id; currentTab='order'; }
+  else { location.hash = '#orders'; }
+  render();
+}
+
+function approve(id){ const o = byId(id); if(o.status!=='pending' && o.status!=='refill') return; declineOpen=false; finishDecision(o, 'approved'); }
+function decline(id){
+  const o = byId(id); if(o.status!=='pending' && o.status!=='refill') return;
+  const sel = document.getElementById('decline-reason');
+  o.declineReason = (sel ? sel.value : 'declined by provider') + ' — patient refunded in full.';
+  declineOpen=false; finishDecision(o, 'declined');
+}
+function quickApprove(id){
+  const o = byId(id);
+  if(o.patient.newPatient){ location.hash = '#order/'+id; toast('New patient — review the full order first.'); return; }
+  finishDecision(o, 'approved');
+}
+function reopen(id){
+  const o = byId(id);
+  o.status = (o.refillInfo ? 'refill' : 'pending');
+  delete o.decidedAt;
+  store.save(); render();
+  toast('Order reopened for review.');
+}
+
+function stepOrder(dir){
+  const pend = pendings();
+  if(!pend.length) return;
+  const r = route();
+  let i = pend.findIndex(x=>x.id===r.id);
+  if(i<0) i = 0; else i = (i + dir + pend.length) % pend.length;
+  location.hash = '#order/' + pend[i].id;
+}
+
+/* ---------- toasts ---------- */
+function toast(html, ms=3200){
+  const w = $('#toasts');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span>${html}</span>`;
+  w.appendChild(el);
+  setTimeout(()=> el.remove(), ms);
+}
+function toastUndo(html, beforeSnap, onCommit){
+  const w = $('#toasts');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  let secs = 5;
+  el.innerHTML = `<span>${html}</span><button id="undo-btn">Undo · <span class="num">${secs}</span>s</button>`;
+  w.appendChild(el);
+  const btn = el.querySelector('#undo-btn');
+  const iv = setInterval(()=>{
+    secs--;
+    if(secs<=0){ cleanup(); return; }
+    const n = btn.querySelector('.num'); if(n) n.textContent = secs;
+  }, 1000);
+  function cleanup(){ clearInterval(iv); el.remove(); }
+  btn.addEventListener('click', ()=>{
+    restoreSnapshot(beforeSnap);
+    store.save();
+    cleanup();
+    const o = JSON.parse(beforeSnap);
+    location.hash = '#order/' + o.id;
+    render();
+    toast('Undone — order is back in review.');
+  });
+  setTimeout(cleanup, 5200);
+}
+
+/* ---------- documents modal ---------- */
+function openDoc(id, i){
+  const o = byId(id); const d = o.docs[i]; if(!d) return;
+  const ov = $('#overlays');
+  ov.innerHTML = `<div class="modal-bk" onclick="if(event.target===this) this.remove()">
+    <div class="modal" role="dialog" aria-label="${esc(d.name)}">
+      <h4>${esc(d.name)}</h4>
+      <div class="m-sub">${d.kind} · ${d.date} · ${esc(o.patient.name)}</div>
+      <div class="fake-doc">
+        <b>${d.kind} — ${esc(o.patient.name)} (${o.patient.code})</b><br><br>
+        ${o.intake.map(x=>`<span style="color:var(--muted-fg)">${esc(x.q)}:</span> ${esc(x.a)}<br>`).join('')}
+        <br><span style="color:var(--muted-fg)">Signature:</span> Patient e-signed ${o.ordered}
+      </div>
+      <div class="m-foot">
+        <button class="btn outline" onclick="this.closest('.modal-bk').remove()">Close</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---------- guided tour ---------- */
+let tourIdx = -1;
+const goOrders = () => { if(location.hash !== '#orders' && location.hash !== '') location.hash = '#orders'; };
+const TOUR = [
+  { sel:null, pre:goOrders, title:'The new Orders section',
+    what:'A working prototype of the doctor-facing Orders section, built pixel-for-pixel in the current portal\'s design language. Everything you\'ll see is clickable and stateful.',
+    why:'The 21 Aug sync decided: RX orders get their own LifeRx / TelyRx-style area — one list, one page per order, minimal clicks. This walkthrough shows each decision and the reason behind it.' },
+  { sel:'.nav-item.active', pre:goOrders, title:'One new sidebar entry',
+    what:'“Orders” joins the sidebar with a live count of orders needing review. The Tasks queue stays untouched.',
+    why:'Orders are only RX storefront purchases; medical evaluations and follow-ups keep their existing Tasks workflow. Scope stays small and shippable.' },
+  { sel:'.stats', pre:goOrders, title:'Triage numbers first',
+    what:'Needs-review, approved and declined counts sit at the top; the list defaults to the needs-review filter.',
+    why:'The doctor\'s first question is “how many are waiting?” — the answer shouldn\'t require scanning a table.' },
+  { sel:'.order-row', pre:goOrders, title:'A row is the whole story',
+    what:'Patient + code + state, medication + quantity, amount paid, status, and age of the order — in one line. The row itself is a real link.',
+    why:'Dr. Miller\'s actual workflow is Ctrl-click: open ten orders in ten browser tabs, approve, close, next. Real URLs per order make that work — the current drawer can\'t do it (“back नहीं आता”).' },
+  { sel:'button.outline-blue', pre:goOrders, title:'One-click approve — refills only',
+    what:'The inline Approve button appears only on refill re-authorization rows, never on new orders.',
+    why:'A refill re-auth re-confirms something this doctor already signed — that\'s the Epic “Sign All” case. Approving a new order without seeing SIG and flags is where one-click macros have historically gone wrong.' },
+  { sel:'.order-head', title:'Decision context upfront', pre:()=>{ if(location.hash!=='#order/ORD-1042') location.hash='#order/ORD-1042'; currentTab='order'; },
+    what:'Identity, DOB, licence-match badge, new-vs-returning, amount paid and order age — before any scrolling or tab-hunting.',
+    why:'Today this lives across the drawer\'s Overview tab and header. Licence match is compliance-critical: prescribing happens where the patient is located.' },
+  { sel:'.tabs', title:'7 tabs became 5',
+    what:'Order · Patient · Past Orders · Documents · Prev Prescriptions — with Order first, exactly the meeting\'s list.',
+    why:'Visit Note can auto-generate on approval; Messages was dropped because the doctor never opens it. Order-first because that\'s the decision; everything else is reference.' },
+  { sel:'#sec-items', title:'The decision surface',
+    what:'Medication, dosage, quantity, amount paid, and the SIG directions — all inline. Price difference appears only if a swap changes the price.',
+    why:'This is what gets signed, so it carries the page. The permanent “Price difference: no adjustment needed” block from the current drawer is gone — it answered a question nobody asked.' },
+  { sel:'.refills', title:'Refill cap — new safety control',
+    what:'The doctor picks None / 1 / 2 / 3 / 5 refills at signing. Refills then auto-ship each cycle with no task, and stop at the cap.',
+    why:'Today auto-refill is unlimited — the cron clones the prescription forever with zero review. Putting the count in the signature is the TelyRx / LifeFile convention and the fix the meeting debated. Titrating GLP-1s instead re-evaluate each cycle.' },
+  { sel:'.swapline', title:'Swap — kept, but demoted',
+    what:'Swapping to an alternative medication is folded behind a small link instead of an always-open dropdown.',
+    why:'The current drawer offers the entire catalog in one flat dropdown — noisy and error-prone. Swaps are rare; the capability stays without occupying the decision path.' },
+  { sel:'.addr', title:'The shipping address, finally',
+    what:'Where the medication ships, pinned inside the patient snapshot.',
+    why:'A named bug from the sync — the doctor could never see the address. The data already reaches the drawer\'s payload today (orders.shippingAddress); it was simply never rendered.' },
+  { sel:'#sec-safety', title:'Safety rails stay multi-click',
+    what:'Interaction screening, and a hard flag when this is a new patient\'s first prescription — which disables quick-approve and keyboard shortcuts.',
+    why:'FSMB: prescribing from a static questionnaire alone isn\'t acceptable — first prescriptions need full review and a visible path to ask follow-ups. Only the routine case gets the fast path.' },
+  { sel:'.doc-row', title:'Documents made small', pre:()=>{ currentTab='docs'; },
+    what:'Compact rows with a View preview — not the giant tiles from the current Overview tab.',
+    why:'“Documents बड़ा-बड़ा बिल्कुल नहीं” — the intake\'s key answers are already inline on the Order tab, so files are reference, not the main event.' },
+  { sel:'.actionbar', title:'Approve: one click, right side, undo not confirm', pre:()=>{ currentTab='order'; },
+    what:'Approve & Sign sits bottom-right (US convention), big and fixed. It signs immediately, holds transmission 5 seconds with an Undo, then auto-advances to the next pending order. Decline sits far-left with a reason step.',
+    why:'Confirmation dialogs habituate within a day at this volume; undo is the evidence-backed replacement. Auto-advance is how MD Integrations and Gmail-style triage keep rhythm. Decline keeps friction on purpose — it refunds money and ends care.' },
+  { sel:null, title:'Explore freely',
+    what:'Demo controls (bottom-left): add orders, jump to refill / declined states, toggle the numbered “What changed” notes, open the full design rationale, or reset the data.',
+    why:'Keyboard on an order: A approve · D decline · ‹ › navigate. Everything you break, Reset fixes.' },
+];
+
+let tourHeart = null;
+function startTour(){
+  store.reset(); filter='needs'; annOn=false; guideOn=false; demoOpen=false; declineOpen=false;
+  if(location.hash !== '#orders') location.hash = '#orders';
+  // Heartbeat: some compositors skip freshly-inserted translucent layers until the
+  // layer's style changes in a later frame — an imperceptible opacity toggle fixes that.
+  if(!tourHeart) tourHeart = setInterval(() => {
+    const c = document.getElementById('tour-dimc');
+    if(c) c.style.opacity = (c.style.opacity === '0.999' ? '1' : '0.999');
+  }, 300);
+  tourGo(0);
+}
+function endTour(){
+  tourIdx = -1;
+  if(tourHeart){ clearInterval(tourHeart); tourHeart = null; }
+  document.getElementById('tour-root').innerHTML = '';
+  guideOn = true; store.save(); render();
+  toast('Walkthrough ended — explore freely, or restart it from Demo controls.');
+}
+function tourGo(i){
+  if(i < 0) i = 0;
+  if(i >= TOUR.length){ endTour(); return; }
+  tourIdx = i;
+  const s = TOUR[i];
+  if(s.pre) s.pre();
+  render();
+  requestAnimationFrame(()=>{
+    const el = s.sel ? document.querySelector(s.sel) : null;
+    if(el) el.scrollIntoView({ block:'center', behavior:'auto' });
+    setTimeout(placeTour, 60);
+  });
+}
+function ensureTourEls(){
+  const root = document.getElementById('tour-root');
+  if(document.getElementById('tour-card')) return;
+  root.innerHTML = `
+    <canvas id="tour-dimc"></canvas>
+    <div class="tour-spot" id="tour-spot"></div>
+    <div class="tour-card" id="tour-card" role="dialog" aria-label="Walkthrough step"></div>`;
+}
+function drawDim(hole){
+  const c = document.getElementById('tour-dimc');
+  const dpr = window.devicePixelRatio || 1;
+  const iw = window.innerWidth, ih = window.innerHeight;
+  if(c.width !== Math.round(iw*dpr) || c.height !== Math.round(ih*dpr)){
+    c.width = Math.round(iw*dpr); c.height = Math.round(ih*dpr);
+    c.style.width = iw+'px'; c.style.height = ih+'px';
+  }
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, iw, ih);
+  ctx.fillStyle = 'rgba(9, 9, 11, 0.45)';
+  ctx.fillRect(0, 0, iw, ih);
+  if(hole){
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.beginPath();
+    const rr = 12, {x, y, w, h} = hole;
+    ctx.moveTo(x+rr, y);
+    ctx.arcTo(x+w, y, x+w, y+h, rr); ctx.arcTo(x+w, y+h, x, y+h, rr);
+    ctx.arcTo(x, y+h, x, y, rr); ctx.arcTo(x, y, x+w, y, rr);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+function placeTour(){
+  const root = document.getElementById('tour-root');
+  if(tourIdx < 0){ root.innerHTML=''; return; }
+  ensureTourEls();
+  const s = TOUR[tourIdx];
+  const el = s.sel ? document.querySelector(s.sel) : null;
+  const iw = window.innerWidth, ih = window.innerHeight;
+  const card = document.getElementById('tour-card');
+  const spot = document.getElementById('tour-spot');
+
+  card.innerHTML = `
+    <div class="t-step num">Step ${tourIdx+1} of ${TOUR.length}</div>
+    <h4>${s.title}</h4>
+    <div class="t-body">
+      <div><b>What we did</b>${s.what}</div>
+      <div><b>Why</b>${s.why}</div>
+    </div>
+    <div class="t-foot">
+      ${tourIdx>0?`<button class="btn outline sm" onclick="tourGo(${tourIdx-1})">← Back</button>`:''}
+      <button class="btn blue sm" onclick="tourGo(${tourIdx+1})">${tourIdx===TOUR.length-1?'Finish':'Next →'}</button>
+      <button class="t-end" onclick="endTour()">End tour</button>
+    </div>`;
+
+  if(el){
+    const r = el.getBoundingClientRect();
+    const pad = 7;
+    const vT = r.top - pad, vL = r.left - pad, vW = r.width + pad*2, vH = r.height + pad*2;
+    drawDim({ x: vL, y: vT, w: vW, h: vH });
+    spot.style.display = 'block';
+    spot.style.left = vL+'px'; spot.style.top = vT+'px'; spot.style.width = vW+'px'; spot.style.height = vH+'px';
+    const ch = card.offsetHeight, cw = card.offsetWidth;
+    let top = r.bottom + 16;
+    if(top + ch > ih - 12) top = r.top - ch - 16;
+    if(top < 12) top = Math.max(12, (ih - ch)/2);
+    let left = Math.min(Math.max(12, r.left), iw - cw - 12);
+    card.style.top = top + 'px'; card.style.left = left + 'px';
+  } else {
+    drawDim(null);
+    spot.style.display = 'none';
+    card.style.top = Math.max(12,(ih - card.offsetHeight)/2) + 'px';
+    card.style.left = Math.max(12,(iw - card.offsetWidth)/2) + 'px';
+  }
+}
+window.addEventListener('scroll', ()=>{ if(tourIdx>=0) placeTour(); }, { passive:true });
+window.addEventListener('resize', ()=>{ if(tourIdx>=0) placeTour(); });
+
+/* ---------- rationale ---------- */
+function openRationale(){
+  demoOpen = false; render();
+  const ov = $('#overlays');
+  ov.innerHTML = `<div class="modal-bk" onclick="if(event.target===this) this.remove()">
+    <div class="modal" role="dialog" aria-label="Design rationale" style="max-width:640px; max-height:86vh; overflow-y:auto;">
+      <h4>Design rationale &amp; evidence</h4>
+      <div class="m-sub">Why this page looks the way it does — 21 Aug sync + live walkthrough + competitor &amp; UX research</div>
+      <div style="font-size:12.5px; line-height:1.65; display:flex; flex-direction:column; gap:12px;">
+        <div><b>The problem was never the button.</b> In the current portal, approving is already one click (“Approve order line”, no dialog). The cost is context assembly: 7 drawer tabs, no shipping address, no past orders, and a queue drawer that can't be opened per-patient in browser tabs. This page moves every decision input onto one screen.</div>
+        <div><b>One page per order, all orders listed</b> — the LifeRx / TelyRx model the team pointed at. TelyRx does approve + refill count + SIG + per-line decline in one form with one PRESCRIBE button; we keep that economy but add information hierarchy (snapshot, flags, licence badge) it lacks.</div>
+        <div><b>One-click approve matches the industry benchmark.</b> Epic's refill queue signs a clean request with one “Sign All”. Async telehealth reviews average 89 s – 3.6 min; this layout targets that band for returning patients.</div>
+        <div><b>Undo instead of confirm.</b> Confirmation dialogs habituate within a day at this frequency (NN/g); the evidence-backed pattern is act-immediately + hold the transmission 5 s with Undo (Gmail-style). Decline keeps its reason step deliberately — it refunds money and ends care.</div>
+        <div><b>Refill cap is a new safety control.</b> Today, if auto-refill is on, a cron clones the prescription every cycle with no task and no review — unlimited until cancelled. Putting 0/1/2/3/5 into the doctor's signature (NCPDP refill count convention) is the fix the meeting debated. Titrating GLP-1s instead re-evaluate each cycle — monthly dose changes make each refill effectively a new Rx (and 503A pharmacies are capped at 4 scripts/patient/month anyway).</div>
+        <div><b>Safety rails that stay multi-click:</b> new-patient first prescriptions disarm quick-approve and keyboard shortcuts (FSMB: questionnaire-only prescribing isn't acceptable — the follow-up path must be visible); licence mismatch renders as a hard stop; serious contraindications convert Approve into a two-step.</div>
+        <div><b>Implementation seams already exist:</b> approval is per line (each order item has a 1:1 task), the shipping address snapshot already reaches the drawer's client payload unrendered, and the subscription-creation hook at approval is where a refill count plugs in. The backend needs one new column and a cron decrement — the rest of this page is assembling data the server already returns.</div>
+      </div>
+      <div class="m-foot"><button class="btn outline" onclick="this.closest('.modal-bk').remove()">Close</button></div>
+    </div>
+  </div>`;
+}
+
+/* ---------- annotations ---------- */
+function annToggle(id){
+  const el = document.getElementById(id);
+  const was = el.classList.contains('open');
+  document.querySelectorAll('.ann-card.open').forEach(x=>x.classList.remove('open'));
+  if(!was) el.classList.add('open');
+}
+function setAnn(on){
+  annOn = on;
+  document.body.classList.toggle('show-ann', on);
+  if(!on) document.querySelectorAll('.ann-card.open').forEach(x=>x.classList.remove('open'));
+}
+
+/* ---------- demo panel ---------- */
+function demoPanel(){
+  return `
+  <button class="demo-fab" onclick="demoOpen=!demoOpen; render()">◈ Demo controls</button>
+  ${demoOpen?`<div class="demo-pop">
+    <h5>Walk the prototype</h5>
+    <div class="drow">
+      <button class="btn blue sm" onclick="startTour()">▶ Guided walkthrough</button>
+      <button class="btn outline sm" onclick="setAnn(${annOn?'false':'true'}); demoOpen=true; render()">${annOn?'Hide':'Show'} “What changed” notes</button>
+      <button class="btn outline sm" onclick="demoAddOrder()">Add a pending order</button>
+      <button class="btn outline sm" onclick="location.hash='#order/ORD-1044'; demoOpen=false; render()">Jump to a refill approval</button>
+      <button class="btn outline sm" onclick="location.hash='#order/ORD-1035'; demoOpen=false; render()">Jump to a declined order</button>
+      <button class="btn outline sm" onclick="openRationale()">Design rationale &amp; evidence</button>
+      <button class="btn soft-red sm" onclick="store.reset(); demoOpen=false; location.hash='#orders'; render(); toast('Demo reset.')">Reset demo data</button>
+    </div>
+    <div class="note">Keyboard on an order: <b>A</b> approve · <b>D</b> decline · <b>‹ ›</b> navigate pending. Rows are links — Ctrl-click for a new tab.</div>
+  </div>`:''}`;
+}
+
+let demoN = 0;
+function demoAddOrder(){
+  demoN++;
+  const id = 'ORD-11' + String(50+demoN);
+  orders.unshift({
+    id, task:'TASK64'+(10+demoN), status:'pending',
+    patient:{ name:['Ezra Ruiz','Wallace Sutton','Alyssa Clemons'][demoN%3], code:'PAT52'+(60+demoN), dob:'08/05/1983', age:43, sex:'Male',
+      state:'CA', licensed:true, email:'bebase@mailinator.com', phone:'+1 626 703 8739',
+      height:'5 ft 9 in', weight:'231 lbs', bmi:'34.1', allergies:'No known drug allergies',
+      address:'1114 S Grand Ave, Los Angeles, CA 90015', newPatient: demoN%2===0 },
+    ordered:'Aug 21, 2026', due:'Aug 22, 2026',
+    lines:[
+      { med:'1st Month: Tirzepatide ODT 3mg once daily', sub:'3mg · ODT · 30 tablets', price:199.00,
+        sig:'Dissolve 1 tablet under the tongue once daily.',
+        refills:0, titrates:true, declined:false, swaps:[{label:'Tirzepatide ODT 3mg — $199.00', d:0},{label:'Oral Semaglutide 2mg — $199.00', d:0}], swapIdx:0 },
+      { med:'B12 Injections 4 mg', sub:'4mg · Injection · 4 vials', price:49.00,
+        sig:'Inject 1 mL intramuscularly once weekly.',
+        refills:3, declined:false, swaps:[{label:'B12 Injections 4 mg — $49.00', d:0}], swapIdx:0 }],
+    intake:[{q:'Goal weight', a:'195 lbs'},{q:'Thyroid cancer history (self/family)?', a:'No'},{q:'Pancreatitis?', a:'No'},{q:'Current medication', a:'Atorvastatin 20mg'}],
+    docs:[{name:'intake-form-64'+(10+demoN)+'.pdf', kind:'Intake', date:'08/21/2026'}],
+    pastOrders:[], prevRx:[]
+  });
+  store.save(); demoOpen=false; render();
+  toast('New order added to the queue.');
+}
+
+/* ---------- keyboard ---------- */
+document.addEventListener('keydown', e => {
+  if(e.target.matches('input, textarea, select')) return;
+  if(tourIdx >= 0){
+    if(e.key==='ArrowRight' || e.key==='Enter'){ e.preventDefault(); tourGo(tourIdx+1); }
+    else if(e.key==='ArrowLeft'){ e.preventDefault(); tourGo(tourIdx-1); }
+    else if(e.key==='Escape'){ endTour(); }
+    return;
+  }
+  const r = route();
+  if(r.view!=='order') return;
+  const o = byId(r.id);
+  const live = o.status==='pending'||o.status==='refill';
+  if(e.key==='a'||e.key==='A'){
+    if(!live) return;
+    if(o.patient.newPatient){ toast('New patient — first prescription. Review, then use the Approve button.'); return; }
+    approve(o.id);
+  }
+  if(e.key==='d'||e.key==='D'){
+    if(!live) return;
+    if(o.patient.newPatient && !declineOpen){ declineOpen = true; render(); return; }
+    if(!declineOpen){ declineOpen = true; render(); }
+  }
+  if(e.key==='ArrowRight'){ stepOrder(1); }
+  if(e.key==='ArrowLeft'){ stepOrder(-1); }
+});
+
+/* ---------- render ---------- */
+function render(){
+  const r = route();
+  const app = $('#app');
+  if(r.view==='orders'){
+    app.innerHTML = sidebar(true) + `<div class="main">${topbar('<b>Orders</b>')}<div class="content">${listView()}</div>${demoPanel()}</div>`;
+  } else {
+    const o = byId(r.id);
+    app.innerHTML = sidebar(true) + `<div class="main">${topbar(`<a href="#orders">Orders</a> / <b>${o.id} · ${esc(o.patient.name)}</b>`)}<div class="content">${orderView(r.id)}</div>${demoPanel()}</div>`;
+  }
+  document.body.classList.toggle('show-ann', annOn);
+  if(declineOpen){
+    requestAnimationFrame(()=>{ const el = document.getElementById('decline-reason'); if(el) el.scrollIntoView({ block:'nearest' }); });
+  }
+}
+
+store.load();
+render();
+</script>
+
+
+
+===
+
+now i wnt to o the following:
+
+1. first we were perviously following a 3 type of order: medical eval , any meds, order eval. all were a bit similar but a bit different. now i think that we have to simplify and unify the flow and rmv the things that we would not need here and make things clear and acciesible 
+2. i hv shared u the ss for the current screens + the ss for the thing my team did and we hv to make imrpoveiments (or major overhall XD) on that
+3. the major thing is that we hv to open the task details on the new tab rather then a drawer so that 
+
+now i kinda of not like it and like it the artifact. here's some of the rough idea but i am open too ur suggestion
+but the goal is ti minimee the clicks for the doc and still serve the primary details on the row click we need to open the page (no drawer) in the page i like how he hv done the tabs and the primary and the secondary secitons we cn replicate that 
+
+but most imp i may wnt to keep the interface for showing the medications simple. 
+
+if it follows the treatment protocal then we can say its following the treatment prototal wtih the steps in the main. if ht is not following the trreatment protocal then we cn simply say that its a one row/card thing (but keep it simple consistent)
+
+if it hv the auto refill there then we can simply say auto refills enabled then someone would know
+
+next we cn show the medcial context. one thing no is that we need to give the option to the doc to change the medication if need as well may be wew cn gie a subtle button idk we cn think of it 
+
+provider notes we cn show upfront 
+Treatment Settings (idk if we should evn need that if need we cn simply hide it under the advance options to open the acordian)
+
+
+i think by 2 click the doc should be able to process the presc if need and since its a new page then he cn open this in new tabs as well
+we need to give as much consistent and smooth and clean exp to the doctors.
+
+the current work by team is not good. we need to keep the buttons bigger text bigger so that its scanable remember the dr miller is super fasst meanin he clicks the tab and tehn open it click and done. also one thing on the grid no we cn give open all in new tab that will open the all rows in new tab or selected in new tab but i think seelcted in tab makes no sense the miller cn do simiple ctrl + click (yes he does it) and opens it so a single button may be help full to him only
+
+go thru this think fomr these directions and then we can review 

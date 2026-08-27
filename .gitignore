@@ -1,0 +1,15 @@
+node_modules/
+.node_modules.lock
+dist/
+build/
+.vite/
+*.log
+.grok/preview.log
+.grok/status/
+artifacts/
+.DS_Store
+.env
+.env.*
+.vercel/
+.grok/*
+!.grok/app-env.json
