@@ -174,6 +174,9 @@ export default defineConfig(({ command, isPreview }) => ({
             // `NITRO_PRESET=cloudflare npm run build` emits a Workers bundle
             // (+ wrangler.json) instead — see README "Deploy to Cloudflare".
             preset: process.env.NITRO_PRESET || "vercel",
+            // Pinned: Nitro otherwise stamps the build date, and Cloudflare
+            // rejects a compatibility_date in the future (error 10021).
+            compatibilityDate: "2026-08-01",
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.

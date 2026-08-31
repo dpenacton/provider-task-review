@@ -3,9 +3,9 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { IdFace } from "@/components/id-face";
 import type { Task } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 export type DocKind = "id" | "intake";
+export type Side = "front" | "back";
 
 /**
  * Inline preview so the provider can eyeball the ID or the intake PDF without
@@ -17,15 +17,12 @@ export function DocPreview({
   kind,
   name,
   side = "front",
-  onSide,
   onClose,
 }: {
   task: Task;
   kind: DocKind;
   name: string;
-  side?: "front" | "back";
-  /** Provided only when the ID was uploaded as two faces. */
-  onSide?: (side: "front" | "back") => void;
+  side?: Side;
   onClose: () => void;
 }) {
   const href = kind === "id" ? `/id/${task.id}` : `/intake/${task.id}`;
@@ -49,7 +46,11 @@ export function DocPreview({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button aria-label="Close preview" onClick={onClose} className="absolute inset-0 bg-foreground/50" />
+      <button
+        aria-label="Close preview"
+        onClick={onClose}
+        className="absolute inset-0 bg-foreground/50"
+      />
       <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
         <header className="flex items-center gap-2 border-b border-border px-4 py-2.5">
           <div className="min-w-0 flex-1">
@@ -88,23 +89,6 @@ export function DocPreview({
         <div className="min-h-0 flex-1 overflow-y-auto bg-background p-4">
           {kind === "id" ? (
             <div className="mx-auto max-w-md">
-              {onSide ? (
-                <div className="mb-3 flex gap-1 rounded-lg bg-muted-bg p-1">
-                  {(["front", "back"] as const).map((sd) => (
-                    <button
-                      key={sd}
-                      type="button"
-                      onClick={() => onSide(sd)}
-                      className={cn(
-                        "h-8 flex-1 rounded-md text-xs font-semibold capitalize transition-colors",
-                        side === sd ? "bg-card text-foreground shadow-sm" : "text-muted hover:text-foreground",
-                      )}
-                    >
-                      {sd}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
               <div className="aspect-[1.6/1] overflow-hidden rounded-xl border border-border text-[19px]">
                 <IdFace patient={p} side={side} />
               </div>
