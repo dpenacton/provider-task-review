@@ -1,33 +1,36 @@
-import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  Lock,
-  Phone,
-  ShieldAlert,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, FileText, MessageSquare, Phone, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { MedBlock } from "@/components/med-block";
-import { PatientRail } from "@/components/patient-rail";
+import { OverviewTab } from "@/components/overview-tab";
+import { VisitNoteEditor } from "@/components/visit-note-editor";
 import { Button } from "@/components/ui/button";
 import { extrasFor } from "@/lib/catalog";
 import { DECLINE_REASONS } from "@/lib/demo-data";
 import { isNeedsReview, nextPendingId, useTaskStore } from "@/lib/store";
 import type { Task } from "@/lib/types";
-import { cn, initials, money } from "@/lib/utils";
+import { cn, money } from "@/lib/utils";
 
-type Tab = "review" | "patient" | "visit" | "checkins" | "history" | "files" | "messages";
+type Tab = "overview" | "patient" | "visit" | "checkins" | "history" | "files" | "messages";
 
-export function ReviewView({ task }: { task: Task }) {
-  const navigate = useNavigate();
+function kindLabel(task: Task) {
+  if (task.kind === "protocol") return "Treatment plan";
+  if (task.kind === "prescribe") return "Medical evaluation";
+  return task.refillOf ? "Refill" : "Order evaluation";
+}
+
+export function ReviewView({
+  task,
+  onClose,
+  onGo,
+}: {
+  task: Task;
+  onClose: () => void;
+  onGo: (taskId: string) => void;
+}) {
   const tasks = useTaskStore((s) => s.tasks);
-  const [tab, setTab] = useState<Tab>("review");
+  const [tab, setTab] = useState<Tab>("overview");
   const [declineOpen, setDeclineOpen] = useState(false);
   const [reason, setReason] = useState(DECLINE_REASONS[0]!);
-  const [advanced, setAdvanced] = useState(false);
   const [confirmHard, setConfirmHard] = useState(false);
   const stripRef = useRef<HTMLDivElement>(null);
   const [edges, setEdges] = useState({ left: false, right: false });
@@ -54,22 +57,23 @@ export function ReviewView({ task }: { task: Task }) {
   }, [syncEdges, task.id]);
 
   useEffect(() => {
-    stripRef.current
-      ?.querySelector(`[data-tab="${tab}"]`)
-      ?.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "smooth" });
-  }, [tab]);
-
-  useEffect(() => {
-    setTab("review");
+    setTab("overview");
     setDeclineOpen(false);
     setConfirmHard(false);
-    setAdvanced(false);
   }, [task.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (document.body.dataset.modalOpen === "true") return;
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const editing =
+        tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || (e.target as HTMLElement | null)?.isContentEditable;
+      if (e.key === "Escape") {
+        if (declineOpen) setDeclineOpen(false);
+        else onClose();
+        return;
+      }
+      if (editing) return;
       if (e.key === "a" || e.key === "A") {
         if (!live) return;
         if (newPt || hard) {
@@ -88,16 +92,16 @@ export function ReviewView({ task }: { task: Task }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.id, live, newPt, hard]);
+  }, [task.id, live, newPt, hard, declineOpen]);
 
   function step(dir: number) {
     if (!pendingIds.length) {
-      navigate({ to: "/tasks" });
+      onClose();
       return;
     }
     const i = idx >= 0 ? idx : 0;
     const next = pendingIds[(i + dir + pendingIds.length) % pendingIds.length];
-    if (next) navigate({ to: "/tasks/$taskId", params: { taskId: next } });
+    if (next) onGo(next);
   }
 
   function ctaLabel() {
@@ -121,15 +125,13 @@ export function ReviewView({ task }: { task: Task }) {
         },
       },
     });
-    const next = res.nextId && res.nextId !== task.id ? res.nextId : nextPendingId(useTaskStore.getState().tasks, task.id);
+    const next =
+      res.nextId && res.nextId !== task.id ? res.nextId : nextPendingId(useTaskStore.getState().tasks, task.id);
     window.setTimeout(() => {
       const current = useTaskStore.getState().tasks.find((x) => x.id === task.id);
       if (!current || current.status === "pending" || current.status === "in_review") return;
-      if (next && next !== task.id) {
-        navigate({ to: "/tasks/$taskId", params: { taskId: next } });
-      } else {
-        navigate({ to: "/tasks" });
-      }
+      if (next && next !== task.id) onGo(next);
+      else onClose();
     }, 5200);
   }
 
@@ -149,8 +151,8 @@ export function ReviewView({ task }: { task: Task }) {
     window.setTimeout(() => {
       const current = useTaskStore.getState().tasks.find((x) => x.id === task.id);
       if (!current || current.status !== "declined") return;
-      if (next) navigate({ to: "/tasks/$taskId", params: { taskId: next } });
-      else navigate({ to: "/tasks" });
+      if (next) onGo(next);
+      else onClose();
     }, 5200);
   }
 
@@ -162,139 +164,111 @@ export function ReviewView({ task }: { task: Task }) {
     doApprove();
   }
 
+  const p = task.patient;
+
   return (
-    <div className="flex min-h-[calc(100vh-56px)] flex-col">
-      <div className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-[1320px] items-center justify-between gap-3 px-4 py-2 md:px-8">
-          <Link to="/tasks" className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline">
-            <ChevronLeft className="size-4" />
-            All tasks
-          </Link>
-          <div className="flex items-center gap-1">
-            <button
-              className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted-bg"
-              onClick={() => step(-1)}
-              aria-label="Previous pending"
-            >
-              <ChevronLeft className="size-4" />
-            </button>
-            <span className="tabular text-xs text-muted">
-              {idx >= 0 ? `${idx + 1} of ${pendingIds.length} pending` : "Not in queue"}
-            </span>
-            <button
-              className="inline-flex size-9 items-center justify-center rounded-lg hover:bg-muted-bg"
-              onClick={() => step(1)}
-              aria-label="Next pending"
-            >
-              <ChevronRight className="size-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="mx-auto max-w-[1320px] px-4 pb-4 md:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 items-start gap-3">
-              <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-muted-bg text-sm font-semibold">
-                {initials(task.patient.name)}
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <header className="shrink-0 border-b border-border bg-card px-4 pt-3 md:px-6">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-lg font-semibold tracking-tight md:text-xl">
+              {p.name} <span className="font-normal text-muted">— State: {p.state}</span>{" "}
+              <span className="font-normal text-muted">
+                · DOB {p.dob} · {p.age} yrs
               </span>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-semibold tracking-tight">{task.patient.name}</h1>
-                  {task.patient.licensed ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-0.5 text-xs font-semibold text-success">
-                      <Check className="size-3" />
-                      Licensed in {task.patient.state}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-danger-soft px-2 py-0.5 text-xs font-semibold text-danger">
-                      <Lock className="size-3" />
-                      License mismatch
-                    </span>
-                  )}
-                  {task.patient.newPatient ? (
-                    <span className="rounded-full bg-warn-soft px-2 py-0.5 text-xs font-semibold text-warn">
-                      New patient
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-muted-bg px-2 py-0.5 text-xs font-medium text-muted">
-                      Returning
-                    </span>
-                  )}
-                </div>
-                <p className="mt-1 text-sm text-muted">
-                  {task.patient.code} · DOB {task.patient.dob} · {task.patient.age} yrs · {task.patient.sex}
-                  {task.orderId ? ` · ${task.orderId}` : ""} · {task.id}
-                </p>
-                <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
-                  <span>{task.patient.email}</span>
-                  <span className="inline-flex items-center gap-1">
-                    <Phone className="size-3.5" />
-                    {task.patient.phone}
-                  </span>
-                </p>
-              </div>
-            </div>
-            {task.paidAmount == null ? (
-              <div className="shrink-0 text-left lg:text-right">
-                <p className="text-sm font-medium uppercase tracking-wide text-muted">{task.mode} visit</p>
-                <p className="text-base font-semibold">{task.service}</p>
-              </div>
-            ) : null}
+            </h1>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted md:text-sm">
+              <span className="font-medium text-foreground">{task.id}</span>
+              <span>·</span>
+              <span className="font-medium text-accent">
+                {kindLabel(task)} ({task.mode})
+              </span>
+              <span>·</span>
+              <span>{p.email}</span>
+              <span>·</span>
+              <span>{p.phone}</span>
+              <span>·</span>
+              <span>Patient code: {p.code}</span>
+              {task.paidAmount != null ? (
+                <>
+                  <span>·</span>
+                  <span className="tabular">Paid {money(task.paidAmount)}</span>
+                </>
+              ) : null}
+            </p>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-1">
+            <IconBtn label="Call patient" onClick={() => toast("Demo — dials the patient in the live portal.")}>
+              <Phone className="size-4" />
+            </IconBtn>
+            <IconBtn label="Message patient" onClick={() => setTab("messages")}>
+              <MessageSquare className="size-4" />
+            </IconBtn>
+            <span className="mx-1 hidden h-6 w-px bg-border sm:block" />
+            <IconBtn label="Previous pending" onClick={() => step(-1)}>
+              <ChevronLeft className="size-4" />
+            </IconBtn>
+            <span className="tabular hidden whitespace-nowrap text-xs text-muted sm:inline">
+              {idx >= 0 ? `${idx + 1} / ${pendingIds.length}` : "—"}
+            </span>
+            <IconBtn label="Next pending" onClick={() => step(1)}>
+              <ChevronRight className="size-4" />
+            </IconBtn>
+            <IconBtn label="Close" onClick={onClose}>
+              <X className="size-4" />
+            </IconBtn>
           </div>
         </div>
 
-        <div className="mx-auto -mb-px max-w-[1320px] px-4 md:px-8">
-          <div className="relative">
-            <div
-              ref={stripRef}
-              onScroll={syncEdges}
-              className="no-scrollbar flex snap-x gap-6 overflow-x-auto"
-            >
-              {(
+        <div className="relative mt-2">
+          <div ref={stripRef} onScroll={syncEdges} className="no-scrollbar flex snap-x gap-5 overflow-x-auto">
+            {(
+              [
+                ["overview", "Overview"],
+                ["visit", "Visit note"],
+                ["patient", "Patient"],
+                ["checkins", "Check-ins"],
+                ["history", "History"],
+                ["files", `Files (${task.docs.length})`],
                 [
-                  ["review", "Review"],
-                  ["patient", "Patient"],
-                  [
-                    "messages",
-                    extrasFor(task.id).messages.length
-                      ? `Messages (${extrasFor(task.id).messages.length})`
-                      : "Messages",
-                  ],
-                  ["visit", "Visit note"],
-                  ["checkins", "Check-ins"],
-                  ["history", "History"],
-                  ["files", `Files (${task.docs.length})`],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  data-tab={id}
-                  onClick={() => setTab(id)}
-                  className={cn(
-                    "h-11 shrink-0 snap-start border-b-2 text-sm font-medium transition-colors",
-                    tab === id
-                      ? "border-accent text-accent"
-                      : "border-transparent text-muted hover:border-border hover:text-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            {edges.left ? (
-              <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-card to-transparent" />
-            ) : null}
-            {edges.right ? (
-              <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-card to-transparent" />
-            ) : null}
+                  "messages",
+                  extrasFor(task.id).messages.length
+                    ? `Messages (${extrasFor(task.id).messages.length})`
+                    : "Messages",
+                ],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                data-tab={id}
+                onClick={() => setTab(id)}
+                className={cn(
+                  "h-10 shrink-0 snap-start border-b-2 text-sm font-medium transition-colors",
+                  tab === id
+                    ? "border-accent text-accent"
+                    : "border-transparent text-muted hover:border-border hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
           </div>
+          {edges.left ? (
+            <div className="pointer-events-none absolute inset-y-0 left-0 w-8 bg-gradient-to-r from-card to-transparent" />
+          ) : null}
+          {edges.right ? (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-card to-transparent" />
+          ) : null}
         </div>
-      </div>
+      </header>
 
-      <div className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-5 pb-40 md:px-8">
-        {tab === "review" ? <ReviewTab task={task} advanced={advanced} setAdvanced={setAdvanced} /> : null}
+      <div
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3 md:px-4"
+      >
+        {tab === "overview" ? <OverviewTab task={task} /> : null}
         {tab === "patient" ? <PatientTab task={task} /> : null}
-        {tab === "visit" ? <VisitNoteTab task={task} /> : null}
+        {tab === "visit" ? <VisitNoteEditor task={task} className="mx-auto max-w-3xl" /> : null}
         {tab === "checkins" ? <CheckInsTab task={task} /> : null}
         {tab === "history" ? <HistoryTab task={task} /> : null}
         {tab === "files" ? <FilesTab task={task} /> : null}
@@ -302,8 +276,8 @@ export function ReviewView({ task }: { task: Task }) {
       </div>
 
       {live ? (
-        <div className="sticky bottom-0 z-20 border-t border-border bg-card/95 shadow-bar backdrop-blur">
-          <div className="mx-auto flex max-w-[1320px] flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:px-8">
+        <div className="shrink-0 border-t border-border bg-card/95 shadow-bar backdrop-blur">
+          <div className="flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:px-6">
             {declineOpen ? (
               <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
                 <label className="flex min-w-0 flex-1 items-center gap-2 text-sm">
@@ -323,19 +297,15 @@ export function ReviewView({ task }: { task: Task }) {
                     Cancel
                   </Button>
                   <Button variant="dangerSolid" onClick={doDecline}>
-                    Confirm decline
+                    {task.paidAmount != null ? "Decline & refund" : "Confirm decline"}
                   </Button>
                 </div>
               </div>
             ) : (
               <>
                 <div className="flex items-center gap-1 md:gap-2">
-                  <Button
-                    variant="danger"
-                    onClick={() => setDeclineOpen(true)}
-                    className="flex-1 md:flex-none"
-                  >
-                    Decline
+                  <Button variant="danger" onClick={() => setDeclineOpen(true)} className="flex-1 md:flex-none">
+                    {task.paidAmount != null ? "Decline & refund" : "Decline"}
                   </Button>
                   <Button
                     variant="link"
@@ -346,18 +316,13 @@ export function ReviewView({ task }: { task: Task }) {
                   >
                     Mark review
                   </Button>
-                  <Button
-                    variant="link"
-                    onClick={() => toast("Follow-up task created for 30 days.")}
-                  >
+                  <Button variant="link" onClick={() => toast("Follow-up task created for 30 days.")}>
                     Follow up
                   </Button>
                 </div>
 
                 {newPt || hard ? (
-                  <p className="hidden text-sm text-muted lg:block">
-                    Keyboard approve is off for this case.
-                  </p>
+                  <p className="hidden text-sm text-muted lg:block">Keyboard approve is off for this case.</p>
                 ) : null}
 
                 <Button
@@ -373,14 +338,16 @@ export function ReviewView({ task }: { task: Task }) {
           </div>
         </div>
       ) : (
-        <div className="border-t border-border bg-card px-4 py-3 md:px-8">
-          <div className="mx-auto flex max-w-[1320px] items-center justify-between">
+        <div className="shrink-0 border-t border-border bg-card px-4 py-3 md:px-6">
+          <div className="flex items-center justify-between">
             <p className="text-sm font-medium">
-              {task.status === "declined" ? `Declined${task.declineReason ? ` — ${task.declineReason}` : ""}` : "Signed"}
+              {task.status === "declined"
+                ? `Declined${task.declineReason ? ` — ${task.declineReason}` : ""}`
+                : "Signed"}
             </p>
-            <Link to="/tasks" className="text-sm font-semibold text-accent hover:underline">
+            <button onClick={onClose} className="text-sm font-semibold text-accent hover:underline">
               Back to queue
-            </Link>
+            </button>
           </div>
         </div>
       )}
@@ -388,137 +355,31 @@ export function ReviewView({ task }: { task: Task }) {
   );
 }
 
-function ReviewTab({
-  task,
-  advanced,
-  setAdvanced,
+function IconBtn({
+  label,
+  onClick,
+  children,
 }: {
-  task: Task;
-  advanced: boolean;
-  setAdvanced: (v: boolean) => void;
-}) {
-  const setNotes = useTaskStore((s) => s.setNotes);
-  const setAdvancedFields = useTaskStore((s) => s.setAdvanced);
-
-  return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.9fr)]">
-      <div className="space-y-4">
-        {task.patient.newPatient ? (
-          <div className="flex items-start gap-2 rounded-xl border border-warn-border bg-warn-soft px-4 py-3">
-            <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warn" />
-            <p className="text-sm font-medium">
-              First prescription for a new patient. FSMB expects a real review — quick-approve keys are off.
-            </p>
-          </div>
-        ) : null}
-        <MedBlock task={task} />
-
-        <section className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-baseline justify-between gap-3">
-            <h3 className="text-sm font-semibold">Provider notes</h3>
-            <span className="text-xs font-medium text-danger">Internal only</span>
-          </div>
-          <textarea
-            value={task.providerNotes}
-            onChange={(e) => setNotes(task.id, e.target.value)}
-            rows={3}
-            placeholder="Optional notes about this decision…"
-            className="mt-2 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed outline-none ring-accent/30 focus:ring-2"
-          />
-        </section>
-
-        <section className="rounded-xl border border-border bg-card">
-          <button
-            type="button"
-            onClick={() => setAdvanced(!advanced)}
-            className="flex w-full items-center justify-between px-4 py-3 text-left"
-          >
-            <span>
-              <span className="text-sm font-semibold">Advanced</span>
-              <span className="ml-2 text-sm text-muted">One-time, maintenance, follow-up</span>
-            </span>
-            <span className="text-sm text-accent">{advanced ? "Hide" : "Show"}</span>
-          </button>
-          {advanced ? (
-            <div className="space-y-4 border-t border-border px-4 py-4">
-              <Toggle
-                title="One-time treatment"
-                hint="Auto-completes after delivery"
-                on={task.oneTime}
-                onChange={(v) => setAdvancedFields(task.id, { oneTime: v, maintenance: v ? false : task.maintenance })}
-              />
-              <Toggle
-                title="Maintenance"
-                hint="Keep the patient on the current step indefinitely"
-                on={task.maintenance}
-                onChange={(v) => setAdvancedFields(task.id, { maintenance: v, oneTime: v ? false : task.oneTime })}
-              />
-              <label className="block">
-                <span className="text-sm font-medium">Create follow-up task after (days)</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={task.followUpDays ?? ""}
-                  onChange={(e) =>
-                    setAdvancedFields(task.id, {
-                      followUpDays: e.target.value === "" ? null : Number(e.target.value),
-                    })
-                  }
-                  placeholder="Leave empty for none"
-                  className="mt-1 h-11 w-28 rounded-lg border border-border bg-background px-3 text-sm outline-none"
-                />
-              </label>
-            </div>
-          ) : null}
-        </section>
-      </div>
-      <PatientRail task={task} />
-    </div>
-  );
-}
-
-function Toggle({
-  title,
-  hint,
-  on,
-  onChange,
-}: {
-  title: string;
-  hint: string;
-  on: boolean;
-  onChange: (v: boolean) => void;
+  label: string;
+  onClick: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium">{title}</p>
-        <p className="text-xs text-muted">{hint}</p>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={on}
-        onClick={() => onChange(!on)}
-        className={cn(
-          "relative h-6 w-11 rounded-full transition-colors",
-          on ? "bg-accent" : "bg-zinc-300",
-        )}
-      >
-        <span
-          className={cn(
-            "absolute top-0.5 size-5 rounded-full bg-white shadow-sm transition-transform",
-            on ? "translate-x-5" : "translate-x-0.5",
-          )}
-        />
-      </button>
-    </div>
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-muted-bg hover:text-foreground"
+    >
+      {children}
+    </button>
   );
 }
 
 function PatientTab({ task }: { task: Task }) {
   const p = task.patient;
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="mx-auto grid max-w-5xl gap-3 md:grid-cols-2">
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="text-sm font-semibold">Identity</h3>
         <dl className="mt-3 space-y-2 text-sm">
@@ -541,24 +402,13 @@ function PatientTab({ task }: { task: Task }) {
           <KV k="Shipping" v={p.address} />
         </dl>
       </section>
-      <section className="rounded-xl border border-border bg-card p-5 md:col-span-2">
-        <h3 className="text-sm font-semibold">Full intake</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-2">
-          {task.intake.map((qa) => (
-            <div key={qa.q} className="rounded-lg bg-muted-bg px-3 py-2">
-              <p className="text-xs text-muted">{qa.q}</p>
-              <p className="mt-0.5 text-sm font-medium">{qa.a}</p>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
 
 function HistoryTab({ task }: { task: Task }) {
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="mx-auto grid max-w-5xl gap-3 md:grid-cols-2">
       <section className="rounded-xl border border-border bg-card p-5">
         <h3 className="text-sm font-semibold">Past orders</h3>
         {task.pastOrders.length === 0 ? (
@@ -603,7 +453,7 @@ function HistoryTab({ task }: { task: Task }) {
 
 function FilesTab({ task }: { task: Task }) {
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card">
       {task.docs.length === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-muted">No files attached.</p>
       ) : (
@@ -632,38 +482,18 @@ function FilesTab({ task }: { task: Task }) {
   );
 }
 
-function VisitNoteTab({ task }: { task: Task }) {
-  const extras = extrasFor(task.id);
-  const value = task.visitNote ?? extras.visitNote;
-  const setVisitNote = useTaskStore((s) => s.setVisitNote);
-  return (
-    <section className="rounded-xl border border-border bg-card p-5">
-      <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-semibold">Visit note</h3>
-        <span className="text-xs text-muted">Draft from this review — saved on sign</span>
-      </div>
-      <textarea
-        value={value}
-        onChange={(e) => setVisitNote(task.id, e.target.value)}
-        rows={12}
-        className="mt-3 w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm leading-relaxed outline-none ring-accent/30 focus:ring-2"
-      />
-    </section>
-  );
-}
-
 function CheckInsTab({ task }: { task: Task }) {
   const items = extrasFor(task.id).checkIns;
   if (items.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card px-5 py-12 text-center">
+      <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card px-5 py-12 text-center">
         <p className="text-sm font-medium">No check-ins yet</p>
         <p className="mt-1 text-sm text-muted">Follow-up questionnaires will land here.</p>
       </div>
     );
   }
   return (
-    <ul className="space-y-3">
+    <ul className="mx-auto max-w-3xl space-y-3">
       {items.map((c) => (
         <li key={c.date + c.title} className="rounded-xl border border-border bg-card p-4">
           <p className="text-xs text-muted">{c.date}</p>
@@ -678,7 +508,7 @@ function CheckInsTab({ task }: { task: Task }) {
 function MessagesTab({ task }: { task: Task }) {
   const items = extrasFor(task.id).messages;
   return (
-    <div className="rounded-xl border border-border bg-card">
+    <div className="mx-auto max-w-3xl rounded-xl border border-border bg-card">
       {items.length === 0 ? (
         <p className="px-5 py-10 text-center text-sm text-muted">No messages yet.</p>
       ) : (
@@ -700,10 +530,7 @@ function MessagesTab({ task }: { task: Task }) {
           className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none ring-accent/30 focus:ring-2"
         />
         <div className="mt-2 flex justify-end">
-          <Button
-            size="sm"
-            onClick={() => toast("Demo — message would send in the live portal.")}
-          >
+          <Button size="sm" onClick={() => toast("Demo — message would send in the live portal.")}>
             Send
           </Button>
         </div>
