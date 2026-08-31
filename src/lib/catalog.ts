@@ -308,6 +308,143 @@ export function extrasFor(taskId: string): TaskExtras {
   return { ...extra, intakeUrl: extra.intakeUrl || `/intake/${taskId}` };
 }
 
+export interface AiDetail {
+  /** What the model thinks should happen next — mirrors the portal's status pill. */
+  status: string;
+  /** 0–100. Shown next to the status, never used to gate anything. */
+  confidence: number;
+  /** The long-form reasoning the provider actually reads. */
+  reasoning: string;
+  /** Discrete checks the model ran, one line each. */
+  findings: string[];
+}
+
+const AI_DETAIL: Record<string, AiDetail> = {
+  TASK6297: {
+    status: "Provider review",
+    confidence: 88,
+    reasoning:
+      "Returning 36-year-old male requesting a repeat fill of sildenafil 55mg. Two prior fills of the same product in the last six months, both delivered with no reported adverse effects and no messages to the clinic. Intake denies nitrates, nitric-oxide donors and any cardiac history; the only active medication is lisinopril 10mg daily, which is not a contraindication and needs no dose adjustment. Blood pressure self-reported at 122/78 is within range for PDE-5 therapy. No new symptoms since the last review and no change to the shipping state, so the existing license coverage still applies.",
+    findings: [
+      "No nitrate or nitric-oxide donor on the active medication list.",
+      "No reported chest pain, MI, CVA or unstable angina.",
+      "Lisinopril + sildenafil: expected mild additive hypotension, monitor only.",
+      "Two prior fills tolerated, most recent Jul 08 2026.",
+      "ID matches the intake name and date of birth.",
+      "Shipping state AK is covered by the prescriber's license.",
+    ],
+  },
+  TASK6402: {
+    status: "First-Rx review required",
+    confidence: 74,
+    reasoning:
+      "New 38-year-old female, no prior prescription on file. Goal is energy and libido recovery postpartum, six months out from delivery and no longer breastfeeding. Penicillin is the only listed allergy and is not relevant to enclomiphene. Intake is negative for venous thromboembolism, stroke and estrogen-sensitive malignancy; a levonorgestrel IUD is in place, which does not interact. Because this is a first prescription for a new patient, FSMB guidance expects a documented review rather than a quick approve, and the keyboard shortcut is disabled for this task.",
+    findings: [
+      "First prescription — no medication history to compare against.",
+      "Negative for clot, stroke and estrogen-sensitive cancer history.",
+      "Levonorgestrel IUD in place — no interaction with enclomiphene.",
+      "Penicillin allergy noted, unrelated to this therapy.",
+      "Protocol offers two steps; step 1 (6.25mg) is the standard start.",
+      "30-day follow-up recommended to check tolerance.",
+    ],
+  },
+  TASK6246: {
+    status: "Provider review",
+    confidence: 86,
+    reasoning:
+      "60-year-old male, returning patient, requesting daily low-dose tadalafil. Prior fill in January was tolerated with no headache or flushing reported at the check-in, and usage was three to four days a week. Active medications are atorvastatin and omeprazole; neither is a contraindication to a PDE-5 inhibitor. Intake denies nitrates and any cardiac symptoms. Age alone is not a bar to therapy, but the daily dosing schedule warrants confirming the patient is not also using an alpha blocker — none is listed.",
+    findings: [
+      "No nitrates or alpha blockers on the medication list.",
+      "Atorvastatin, omeprazole — no clinically significant interaction.",
+      "Prior tadalafil fill Jan 2026 tolerated, check-in negative.",
+      "Denies chest pain, syncope and exertional symptoms.",
+      "Protocol step 1 (6mg daily) matches the previous course.",
+      "ID and intake identity match.",
+    ],
+  },
+  TASK6059: {
+    status: "Sync visit required",
+    confidence: 69,
+    reasoning:
+      "34-year-old female, BMI 36.8, requesting semaglutide for weight management with a stated goal weight of 175 lbs. Metformin 500mg BID is active, which is compatible and often continued alongside a GLP-1. Intake denies personal and family history of medullary thyroid carcinoma, MEN2 and pancreatitis. This is a titrating product, so state rules require a synchronous video visit before the first prescription is signed, and every subsequent cycle comes back for re-evaluation rather than auto-refilling. Counseling on injection technique, titration pace and GI side effects should be documented in the visit note.",
+    findings: [
+      "Sync video visit required before signing — titrating GLP-1.",
+      "Negative for MTC, MEN2 and pancreatitis history.",
+      "Metformin may continue; watch for additive GI upset.",
+      "BMI 36.8 meets the treatment threshold on its own.",
+      "No gallbladder disease or planned pregnancy reported.",
+      "Each cycle re-evaluated — no auto-approved refill run.",
+    ],
+  },
+  TASK6180: {
+    status: "Provider review",
+    confidence: 84,
+    reasoning:
+      "40-year-old female on oral semaglutide, month 2 of a 3-month titration. Down 9 lbs since starting, with mild week-one nausea that resolved without intervention and no vomiting, dehydration or abdominal pain since. No new medications. Intake remains negative for MTC and pancreatitis. This is a re-authorization of a titrating product, so the fill is a new prescription rather than a refill against the original — the decision is whether to hold at the current dose or advance to month 3.",
+    findings: [
+      "−9 lbs since start; tolerance reported as good.",
+      "Week-one nausea resolved, no recurrence at the month-1 check-in.",
+      "No MTC, MEN2 or pancreatitis history.",
+      "Titrating product — this fill is a fresh Rx, not an auto-refill.",
+      "No new medications since the last review.",
+      "Dose decision: hold at 2mg or advance to 3mg.",
+    ],
+  },
+  TASK6310: {
+    status: "Provider review",
+    confidence: 71,
+    reasoning:
+      "35-year-old female, BMI 35.1, requesting weight-management therapy with no protocol locked at checkout. Sertraline is active; SSRIs are compatible with GLP-1 therapy though combined GI upset is worth mentioning at counseling. Intake is negative for MTC, MEN2, pancreatitis and gallbladder disease. Because nothing was pre-selected, the provider is choosing both the product and the starting step — the Month 1 injectable vial is the conventional start for this presentation, with a 28-day follow-up to check tolerance before advancing.",
+    findings: [
+      "No protocol selected at checkout — provider picks the product.",
+      "BMI 35.1 meets the treatment threshold.",
+      "Sertraline compatible; counsel on additive GI effects.",
+      "Negative for MTC, MEN2 and pancreatitis.",
+      "Month 1 starter vial recommended over an oral agent.",
+      "Follow-up in 28 days suggested.",
+    ],
+  },
+  TASK6411: {
+    status: "Provider review",
+    confidence: 82,
+    reasoning:
+      "43-year-old male, BMI 34.1, paid a two-line order: tirzepatide ODT 3mg plus B12 injections. Atorvastatin is the only active medication and carries no GLP-1 interaction. Intake is negative for MTC, MEN2 and pancreatitis. The B12 line is an adjunct and can be approved or declined independently of the GLP-1 line without refunding the whole order. Both lines ship together, so a decline on either one triggers a partial refund of that line only.",
+    findings: [
+      "Two paid lines — each can be approved or declined separately.",
+      "Negative for MTC, MEN2 and pancreatitis.",
+      "Atorvastatin: no interaction with tirzepatide or B12.",
+      "B12 is an adjunct, not required for the GLP-1 line.",
+      "BMI 34.1 supports the primary therapy.",
+      "Declining one line refunds that line only.",
+    ],
+  },
+  TASK6236: {
+    status: "Hold — contraindication",
+    confidence: 96,
+    reasoning:
+      "34-year-old male requesting sildenafil. Intake is positive for daily isosorbide mononitrate 30mg and a coronary stent placed in 2023 for stable angina. Concurrent PDE-5 inhibitor and nitrate therapy is an absolute contraindication — the combination can cause profound, refractory hypotension. There is no dose adjustment or timing strategy that makes this safe while the nitrate is active. The order should be declined with a refund and the patient directed back to cardiology; if the nitrate is ever discontinued, the request can be reassessed.",
+    findings: [
+      "HARD STOP: daily isosorbide mononitrate on the active list.",
+      "Coronary stent 2023, stable angina — ongoing cardiac disease.",
+      "PDE-5 + nitrate: risk of profound refractory hypotension.",
+      "No safe dose or timing separation exists for this pair.",
+      "Refer to cardiology before any reassessment.",
+      "Decline and refund is the expected outcome.",
+    ],
+  },
+};
+
+export function aiFor(taskId: string): AiDetail {
+  return (
+    AI_DETAIL[taskId] ?? {
+      status: "Provider review",
+      confidence: 70,
+      reasoning: extrasFor(taskId).aiOverview,
+      findings: [],
+    }
+  );
+}
+
 export function idDocsFor(task: Task): DocFile[] {
   const ids = task.docs.filter((d) => d.kind.toLowerCase() === "id");
   if (ids.length) return ids;

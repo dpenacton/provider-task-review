@@ -87,3 +87,42 @@
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Visit note surface — the practice requires the record as a two-column table. */
+.rich:empty::before {
+  content: attr(data-placeholder);
+  color: var(--color-muted);
+}
+.rich h2 {
+  font-size: 1.35em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 0.6em;
+}
+.rich table {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid var(--color-border);
+  table-layout: fixed;
+}
+.rich th,
+.rich td {
+  border: 1px solid var(--color-border);
+  padding: 0.45em 0.6em;
+  text-align: left;
+  vertical-align: top;
+  word-break: break-word;
+}
+.rich th {
+  width: 34%;
+  background: var(--color-muted-bg);
+  font-weight: 600;
+  color: var(--color-foreground);
+}
+.rich p {
+  margin: 0.6em 0 0;
+}
+.rich .rx-foot {
+  color: var(--color-muted);
+  font-size: 0.9em;
+}

@@ -157,7 +157,7 @@ export function QueueView() {
         />
         <Stat
           label="Sync signed"
-          short="Sync ✓"
+          short="Sync done"
           value={doneSync}
           icon={<CheckCircle2 className="size-5 text-success" />}
         />
@@ -295,11 +295,7 @@ export function QueueView() {
                         <KindChip t={t} />
                         <span>{t.service}</span>
                         {t.paidAmount != null ? <span className="tabular">· {money(t.paidAmount)}</span> : null}
-                        {t.autoRefill ? (
-                          <span className="rounded-full bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent">
-                            Auto-refill
-                          </span>
-                        ) : t.titrates ? (
+                        {t.titrates ? (
                           <span className="rounded-full bg-muted-bg px-1.5 py-0.5 text-xs font-medium">
                             Re-evaluate each cycle
                           </span>

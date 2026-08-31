@@ -144,12 +144,21 @@ export interface Task {
   catalog?: SwapOption[];
   refills: number;
   titrates?: boolean;
+  /** Patient's checkout choice. Kept for the record — the provider never edits it. */
   autoRefill: boolean;
+  /**
+   * Provider refill rule: auto-approve this many refills, then the next one comes
+   * back to the provider for a paid review — repeating for the life of the Rx.
+   * 0 = every refill returns. Undefined = not set yet, see refillRuleFor().
+   */
+  refillReview?: number;
   oneTime: boolean;
   maintenance: boolean;
   followUpDays: number | null;
   providerNotes: string;
   visitNote?: string;
+  visitNoteTemplateId?: string;
+  visitNoteSignedAt?: string;
   intake: IntakeQA[];
   docs: DocFile[];
   pastOrders: PastOrder[];

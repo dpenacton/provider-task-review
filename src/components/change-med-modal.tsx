@@ -24,11 +24,19 @@ export function ChangeMedModal({
   const applyTreatment = useTaskStore((s) => s.applyTreatment);
 
   useEffect(() => {
+    // Flagged so the drawer's own Escape handler doesn't close underneath us.
+    document.body.dataset.modalOpen = "true";
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      delete document.body.dataset.modalOpen;
+      window.removeEventListener("keydown", onKey, true);
+    };
   }, [onClose]);
 
   const meds = useMemo(() => {

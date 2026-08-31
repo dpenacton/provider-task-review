@@ -30,6 +30,28 @@ function stepsFromTreatment(tx: CatalogTreatment): ProtocolStep[] {
 
 const HOLD_MS = 5000;
 
+/** Most refills a provider can hand out before the next paid review. */
+export const MAX_REFILL_REVIEW = 12;
+/** What the rule defaults to when the provider hasn't touched it. */
+export const DEFAULT_REFILL_REVIEW = 3;
+
+/**
+ * Auto-approved refills between paid provider reviews. Titrating products always
+ * come back each cycle, so they can never carry an auto-approved run.
+ */
+export function refillRuleFor(t: Task) {
+  if (t.titrates) return 0;
+  return t.refillReview ?? DEFAULT_REFILL_REVIEW;
+}
+
+/** Refill numbers the provider gets paid to review, given the rule. */
+export function reviewPoints(interval: number, upTo = MAX_REFILL_REVIEW) {
+  if (interval <= 0) return Array.from({ length: upTo }, (_, i) => i + 1);
+  const out: number[] = [];
+  for (let n = interval + 1; n <= upTo; n += interval + 1) out.push(n);
+  return out;
+}
+
 interface Transmit {
   taskId: string;
   snapshot: Task;
@@ -56,8 +78,10 @@ interface TaskState {
   applyTreatment: (taskId: string, tx: CatalogTreatment) => void;
   setSig: (taskId: string, lineId: string, sig: string) => void;
   setNotes: (taskId: string, notes: string) => void;
-  setAutoRefill: (taskId: string, on: boolean) => void;
+  setRefillReview: (taskId: string, n: number) => void;
   setVisitNote: (taskId: string, note: string) => void;
+  applyVisitTemplate: (taskId: string, templateId: string, html: string) => void;
+  signVisitNote: (taskId: string, at: string) => void;
   setAdvanced: (
     taskId: string,
     patch: Partial<Pick<Task, "oneTime" | "maintenance" | "followUpDays">>,
@@ -195,6 +219,7 @@ export const useTaskStore = create<TaskState>()(
             kind: t.paidAmount != null ? "order" : "prescribe",
             protocol: undefined,
             titrates: med.category === "GLP-1",
+            refillReview: med.category === "GLP-1" ? 0 : t.refillReview,
             lines,
           };
         }),
@@ -206,6 +231,7 @@ export const useTaskStore = create<TaskState>()(
             kind: "protocol",
             titrates: Boolean(tx.titrates),
             autoRefill: tx.titrates ? false : t.autoRefill,
+            refillReview: tx.titrates ? 0 : t.refillReview,
             protocol: {
               name: tx.name,
               price: tx.price,
@@ -230,8 +256,17 @@ export const useTaskStore = create<TaskState>()(
             : t.protocol,
         })),
       setNotes: (taskId, providerNotes) => get().update(taskId, (t) => ({ ...t, providerNotes })),
-      setAutoRefill: (taskId, autoRefill) => get().update(taskId, (t) => ({ ...t, autoRefill })),
+      setRefillReview: (taskId, n) =>
+        get().update(taskId, (t) => ({ ...t, refillReview: Math.min(MAX_REFILL_REVIEW, Math.max(0, n)) })),
       setVisitNote: (taskId, visitNote) => get().update(taskId, (t) => ({ ...t, visitNote })),
+      applyVisitTemplate: (taskId, templateId, html) =>
+        get().update(taskId, (t) => ({
+          ...t,
+          visitNoteTemplateId: templateId,
+          visitNote: html,
+          visitNoteSignedAt: undefined,
+        })),
+      signVisitNote: (taskId, at) => get().update(taskId, (t) => ({ ...t, visitNoteSignedAt: at })),
       setAdvanced: (taskId, patch) => get().update(taskId, (t) => ({ ...t, ...patch })),
       markReview: (id) =>
         get().update(id, (t) => ({ ...t, status: t.status === "in_review" ? "pending" : "in_review" })),
@@ -242,7 +277,7 @@ export const useTaskStore = create<TaskState>()(
       },
     }),
     {
-      name: "minimal-provider-review-v3",
+      name: "minimal-provider-review-v5",
       partialize: (s) => ({ tasks: s.tasks, filter: s.filter }),
       skipHydration: true,
     },

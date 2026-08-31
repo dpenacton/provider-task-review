@@ -124,7 +124,7 @@ function lineFrom(opt: SwapOption, extra?: Partial<MedLine>): MedLine {
   };
 }
 
-export const SEED_TASKS: Task[] = [
+const BASE_TASKS: Task[] = [
   {
     id: "TASK6297",
     orderId: "ORD-1042",
@@ -177,6 +177,7 @@ export const SEED_TASKS: Task[] = [
     docs: [
       { name: "intake-ahmed-larsen.pdf", kind: "Intake", date: "08/12/2026" },
       { name: "id-front.jpg", kind: "ID", date: "08/12/2026" },
+      { name: "id-back.jpg", kind: "ID", date: "08/12/2026" },
     ],
     pastOrders: [
       { id: "ORD-0981", date: "Jul 08, 2026", med: "Sildenafil 55mg", status: "Delivered", amount: 82.08 },
@@ -742,6 +743,59 @@ export const SEED_TASKS: Task[] = [
     },
   },
 ];
+
+/**
+ * Questions every Minimal intake asks on top of the service-specific ones. Real
+ * intakes run 25–30 answers, and the provider is expected to have all of them in
+ * front of him — so the demo carries the same weight.
+ */
+function commonIntake(t: Task) {
+  const p = t.patient;
+  const glp1 = /semaglutide|tirzepatide/i.test(t.protocol?.name ?? t.lines[0]?.name ?? t.service);
+  return [
+    { q: "Full legal name", a: p.name },
+    { q: "Date of birth", a: p.dob },
+    { q: "Sex assigned at birth", a: p.sex },
+    { q: "Shipping address", a: p.address },
+    { q: "State of residence", a: p.state },
+    { q: "Height", a: p.height },
+    { q: "Weight", a: p.weight },
+    { q: "BMI (calculated)", a: p.bmi },
+    { q: "Drug allergies", a: p.allergies },
+    { q: "Are you currently under a doctor's care?", a: p.newPatient ? "No" : "Yes — primary care, annual visits" },
+    { q: "Primary care provider on file?", a: p.newPatient ? "None provided" : "Yes" },
+    { q: "Past medical history", a: t.safety.flags.length ? "See flagged items below" : "None reported" },
+    { q: "Past surgical history", a: "None reported" },
+    { q: "Family history of heart disease", a: "No" },
+    { q: "Family history of thyroid cancer / MEN2", a: "No" },
+    { q: "History of blood clots, stroke or MI", a: "No" },
+    { q: "Liver or kidney disease", a: "No" },
+    { q: "Seizure disorder", a: "No" },
+    { q: "Mental health history", a: "None reported" },
+    { q: "Currently pregnant or breastfeeding?", a: p.sex === "Female" ? "No" : "N/A" },
+    { q: "Tobacco use", a: "Never" },
+    { q: "Alcohol use", a: "Occasional — 2–3 drinks per week" },
+    { q: "Recreational drug use", a: "No" },
+    { q: "Supplements or OTC products", a: "Multivitamin, vitamin D" },
+    { q: "Blood pressure (self-reported)", a: "122/78" },
+    { q: "Resting heart rate (self-reported)", a: "72 bpm" },
+    ...(glp1
+      ? [
+          { q: "History of pancreatitis or gallbladder disease", a: "No" },
+          { q: "Current or planned pregnancy in the next 12 months", a: "No" },
+        ]
+      : []),
+    { q: "Preferred pharmacy", a: "Mail order — Minimal partner pharmacy" },
+    { q: "Consent to telehealth care", a: "Accepted " + t.createdAt.slice(0, 10) },
+    { q: "Consent to auto-refill at checkout", a: t.autoRefill ? "Yes" : "No" },
+  ];
+}
+
+/** Service-specific answers first, then the standard panel every intake asks. */
+export const SEED_TASKS: Task[] = BASE_TASKS.map((t) => ({
+  ...t,
+  intake: [...t.intake, ...commonIntake(t)],
+}));
 
 export const DECLINE_REASONS = [
   "Contraindication / safety",
